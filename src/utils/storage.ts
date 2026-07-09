@@ -232,11 +232,11 @@ export function saveCompras(compras: CompraHistorial[]): void {
 }
 
 export function clearAllStorage(): void {
-  localStorage.removeItem(STORAGE_KEYS.INSUMOS);
-  localStorage.removeItem(STORAGE_KEYS.PLATILLOS);
-  localStorage.removeItem(STORAGE_KEYS.VENTAS);
-  localStorage.removeItem(STORAGE_KEYS.COMPRAS);
-  localStorage.removeItem(STORAGE_KEYS.CATALOGO);
+  saveInsumos([]);
+  savePlatillos([]);
+  saveVentas([]);
+  saveCompras([]);
+  saveCatalogo([]);
   window.location.reload();
 }
 

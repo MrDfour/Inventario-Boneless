@@ -12,6 +12,7 @@ import {
   Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { CustomDialog } from './CustomDialog';
 
 interface PlatillosPanelProps {
   platillos: Platillo[];
@@ -41,11 +42,51 @@ export default function PlatillosPanel({
   const [cantidadIngrediente, setCantidadIngrediente] = useState<number>(0);
 
   // Estado para la calculadora/simulador de costos
-  const [simPollo, setSimPollo] = useState<number>(200);
-  const [simSalsa, setSimSalsa] = useState<number>(30);
-  const [simCharola, setSimCharola] = useState<number>(1);
-  const [simPapas, setSimPapas] = useState<number>(0);
+  const [simIngredientes, setSimIngredientes] = useState<{ insumoId: string; cantidad: number }[]>([]);
+  const [simSelectedInsumoId, setSimSelectedInsumoId] = useState('');
+  const [simCantidadIngrediente, setSimCantidadIngrediente] = useState<number>(0);
   const [simPrecioVenta, setSimPrecioVenta] = useState<number>(120);
+
+  // Estados para diálogos personalizados
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'Aceptar',
+      onConfirm: () => setDialogConfig(null)
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, isDestructive = false) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Confirmar',
+      cancelText: 'Cancelar',
+      isDestructive,
+      onConfirm: () => {
+        onConfirm();
+        setDialogConfig(null);
+      },
+      onCancel: () => setDialogConfig(null)
+    });
+  };
 
   // Helper para calcular el costo de los insumos en un platillo específico
   const calcularCostoPlatillo = (ingredientes: IngredienteReceta[]) => {
@@ -58,12 +99,12 @@ export default function PlatillosPanel({
 
   const handleAddIngrediente = () => {
     if (!selectedInsumoId || cantidadIngrediente <= 0) {
-      alert('Por favor selecciona un ingrediente y escribe una cantidad válida.');
+      showAlert('Datos Requeridos', 'Por favor selecciona un ingrediente y escribe una cantidad válida.');
       return;
     }
     // Verificar si ya existe en la receta
     if (ingredientesReceta.some(i => i.insumoId === selectedInsumoId)) {
-      alert('Este ingrediente ya está agregado a la receta. Edítalo o bórralo primero.');
+      showAlert('Ingrediente Duplicado', 'Este ingrediente ya está agregado a la receta. Edítalo o bórralo primero.');
       return;
     }
     setIngredientesReceta([...ingredientesReceta, { insumoId: selectedInsumoId, cantidad: cantidadIngrediente }]);
@@ -79,7 +120,7 @@ export default function PlatillosPanel({
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre || precioVenta <= 0 || ingredientesReceta.length === 0) {
-      alert('Por favor, ingresa el nombre, el precio de venta y al menos un ingrediente.');
+      showAlert('Campos Incompletos', 'Por favor, ingresa el nombre, el precio de venta y al menos un ingrediente.');
       return;
     }
     onAddPlatillo({
@@ -95,17 +136,36 @@ export default function PlatillosPanel({
   };
 
   // Simulación dinámica
-  const polloInsumo = insumos.find(i => i.id === 'insumo_pollo');
-  const salsaInsumo = insumos.find(i => i.id === 'insumo_salsa');
-  const charolaInsumo = insumos.find(i => i.id === 'insumo_charola');
-  const papasInsumo = insumos.find(i => i.id === 'insumo_papas');
+  const abrirSimulador = () => {
+    const defaultIngs: { insumoId: string; cantidad: number }[] = [];
+    const pollo = insumos.find(i => i.id === 'insumo_pollo' || i.nombre.toLowerCase().includes('pollo'));
+    const salsa = insumos.find(i => i.id === 'insumo_salsa' || i.nombre.toLowerCase().includes('salsa'));
+    const charola = insumos.find(i => i.id === 'insumo_charola' || i.nombre.toLowerCase().includes('charola'));
+    const papas = insumos.find(i => i.id === 'insumo_papas' || i.nombre.toLowerCase().includes('papa'));
 
-  const polloCostoSim = polloInsumo ? simPollo * polloInsumo.costoUnitario : 0;
-  const salsaCostoSim = salsaInsumo ? simSalsa * salsaInsumo.costoUnitario : 0;
-  const charolaCostoSim = charolaInsumo ? simCharola * charolaInsumo.costoUnitario : 0;
-  const papasCostoSim = papasInsumo ? simPapas * papasInsumo.costoUnitario : 0;
+    if (pollo) defaultIngs.push({ insumoId: pollo.id, cantidad: 200 });
+    if (salsa) defaultIngs.push({ insumoId: salsa.id, cantidad: 30 });
+    if (charola) defaultIngs.push({ insumoId: charola.id, cantidad: 1 });
+    if (papas) defaultIngs.push({ insumoId: papas.id, cantidad: 0 });
 
-  const costoSimTotal = polloCostoSim + salsaCostoSim + charolaCostoSim + papasCostoSim;
+    if (defaultIngs.length === 0 && insumos.length > 0) {
+      defaultIngs.push({ insumoId: insumos[0].id, cantidad: 100 });
+    }
+
+    setSimIngredientes(defaultIngs);
+    if (platillos.length > 0) {
+      setSimPrecioVenta(platillos[0].precioVenta);
+    } else {
+      setSimPrecioVenta(120);
+    }
+    setShowSimulador(true);
+  };
+
+  const costoSimTotal = simIngredientes.reduce((acc, ing) => {
+    const ins = insumos.find(i => i.id === ing.insumoId);
+    if (!ins) return acc;
+    return acc + (ing.cantidad * ins.costoUnitario);
+  }, 0);
   const margenSimDinero = simPrecioVenta - costoSimTotal;
   const margenSimPorcentaje = simPrecioVenta > 0 ? (margenSimDinero / simPrecioVenta) * 100 : 0;
 
@@ -121,7 +181,7 @@ export default function PlatillosPanel({
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
           <button
-            onClick={() => setShowSimulador(true)}
+            onClick={abrirSimulador}
             className="flex-1 sm:flex-initial bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold py-2.5 px-4.5 rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-800 hover:border-slate-750 transition"
           >
             <Calculator className="h-4 w-4 text-orange-400" /> Simulador Rápido
@@ -164,9 +224,12 @@ export default function PlatillosPanel({
                     </div>
                     <button
                       onClick={() => {
-                        if (confirm(`¿Estás seguro de que quieres eliminar el platillo "${platillo.nombre}"?`)) {
-                          onDeletePlatillo(platillo.id);
-                        }
+                        showConfirm(
+                          'Eliminar Platillo',
+                          `¿Estás seguro de que quieres eliminar el platillo "${platillo.nombre}"?`,
+                          () => onDeletePlatillo(platillo.id),
+                          true
+                        );
                       }}
                       className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
                       title="Eliminar Platillo"
@@ -406,64 +469,94 @@ export default function PlatillosPanel({
                   Ideal para cuando quieres cambiar los gramos de pollo o mililitros de salsa para ver el costo proporcional y decidir a cuánto vender un nuevo combo antes de darlo de alta en el sistema.
                 </p>
 
-                <div className="space-y-3 bg-slate-950/40 p-4 rounded-xl border border-slate-850">
+                <div className="space-y-3 bg-slate-950/40 p-4 rounded-xl border border-slate-800/80">
                   <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-mono">Simular Ingredientes</h4>
                   
-                  {/* Gramos Pollo */}
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="font-medium text-slate-300">Porción de Pollo (g):</label>
+                  {/* Formulario para agregar ingrediente a la simulación */}
+                  <div className="flex flex-col sm:flex-row gap-2 pb-3 border-b border-slate-800/60">
+                    <select
+                      value={simSelectedInsumoId}
+                      onChange={(e) => setSimSelectedInsumoId(e.target.value)}
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-orange-500"
+                    >
+                      <option value="">-- Seleccionar Insumo --</option>
+                      {insumos.map(ins => (
+                        <option key={ins.id} value={ins.id}>{ins.nombre} ({ins.unidadMedida})</option>
+                      ))}
+                    </select>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
-                        value={simPollo}
-                        onChange={(e) => setSimPollo(Number(e.target.value))}
-                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-center font-mono font-bold text-white focus:outline-none focus:border-orange-500"
+                        placeholder="Cant."
+                        value={simCantidadIngrediente || ''}
+                        onChange={(e) => setSimCantidadIngrediente(Number(e.target.value))}
+                        className="w-16 bg-slate-900 border border-slate-800 rounded-xl px-2 py-1.5 text-center text-xs font-mono font-bold text-white focus:outline-none focus:border-orange-500"
                       />
-                      <span className="text-slate-500 font-mono">g</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!simSelectedInsumoId || simCantidadIngrediente <= 0) return;
+                          // Si ya existe, actualizar cantidad
+                          if (simIngredientes.some(i => i.insumoId === simSelectedInsumoId)) {
+                            setSimIngredientes(simIngredientes.map(i => i.insumoId === simSelectedInsumoId ? { ...i, cantidad: i.cantidad + simCantidadIngrediente } : i));
+                          } else {
+                            setSimIngredientes([...simIngredientes, { insumoId: simSelectedInsumoId, cantidad: simCantidadIngrediente }]);
+                          }
+                          setSimSelectedInsumoId('');
+                          setSimCantidadIngrediente(0);
+                        }}
+                        className="bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition"
+                      >
+                        Añadir
+                      </button>
                     </div>
                   </div>
 
-                  {/* Mililitros Salsa */}
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="font-medium text-slate-300">Salsa del platillo (ml):</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={simSalsa}
-                        onChange={(e) => setSimSalsa(Number(e.target.value))}
-                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-center font-mono font-bold text-white focus:outline-none focus:border-orange-500"
-                      />
-                      <span className="text-slate-500 font-mono">ml</span>
-                    </div>
+                  {/* Lista de ingredientes actuales en la simulación */}
+                  <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
+                    {simIngredientes.length === 0 ? (
+                      <p className="text-[11px] text-slate-500 italic text-center py-2">No hay ingredientes agregados a la simulación.</p>
+                    ) : (
+                      simIngredientes.map((ing) => {
+                        const ins = insumos.find(i => i.id === ing.insumoId);
+                        if (!ins) return null;
+                        const costoIng = ing.cantidad * ins.costoUnitario;
+                        return (
+                          <div key={ing.insumoId} className="flex justify-between items-center text-xs bg-slate-900/60 p-2 rounded-lg border border-slate-850">
+                            <span className="font-medium text-slate-300 max-w-[180px] truncate">{ins.nombre}:</span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={ing.cantidad}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setSimIngredientes(simIngredientes.map(i => i.insumoId === ing.insumoId ? { ...i, cantidad: val } : i));
+                                }}
+                                className="w-16 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-center font-mono font-bold text-white focus:outline-none focus:border-orange-500"
+                              />
+                              <span className="text-[10px] text-slate-500 w-8 font-mono">{ins.unidadMedida}</span>
+                              <span className="text-[10px] text-rose-400 font-mono w-14 text-right">${costoIng.toFixed(2)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setSimIngredientes(simIngredientes.filter(i => i.insumoId !== ing.insumoId))}
+                                className="text-rose-500 hover:text-rose-400 p-0.5 transition ml-1"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
 
-                  {/* Charola */}
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="font-medium text-slate-300">Charola de servicio:</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={simCharola}
-                        onChange={(e) => setSimCharola(Number(e.target.value))}
-                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-center font-mono font-bold text-white focus:outline-none focus:border-orange-500"
-                      />
-                      <span className="text-slate-500">pza</span>
+                  {insumos.length === 0 && (
+                    <div className="bg-amber-950/20 border border-amber-900/30 text-amber-300 p-2.5 rounded-lg text-[10px] mt-2 flex items-start gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                      <span>No tienes insumos en tu almacén. Crea insumos en la pestaña correspondiente para poder simular recetas con ellos.</span>
                     </div>
-                  </div>
-
-                  {/* Papas opcionales */}
-                  <div className="flex justify-between items-center text-xs">
-                    <label className="font-medium text-slate-300">Papas Francesas (g):</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={simPapas}
-                        onChange={(e) => setSimPapas(Number(e.target.value))}
-                        className="w-20 bg-slate-950 border border-slate-800 rounded px-2 py-1 text-center font-mono font-bold text-white focus:outline-none focus:border-orange-500"
-                      />
-                      <span className="text-slate-500 font-mono">g</span>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Precio de Venta a simular */}
                   <div className="flex justify-between items-center text-xs border-t border-slate-800 pt-3 mt-1">
@@ -504,7 +597,7 @@ export default function PlatillosPanel({
 
                   <div className="bg-slate-950 p-3 rounded-lg text-[10px] text-slate-400 leading-relaxed border border-slate-800/50">
                     <Info className="h-3.5 w-3.5 inline text-orange-400 mr-1" />
-                    Este cálculo se actualiza automáticamente según los últimos costos reales de compra registrados en el almacén (Ej. Pollo a ${(polloInsumo?.costoUnitario || 0).toFixed(4)}/g, Salsa a ${(salsaInsumo?.costoUnitario || 0).toFixed(4)}/ml).
+                    Este cálculo se actualiza automáticamente según los últimos costos reales de compra registrados en el almacén.
                   </div>
                 </div>
 
@@ -521,6 +614,21 @@ export default function PlatillosPanel({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Diálogo personalizado */}
+      {dialogConfig && (
+        <CustomDialog
+          isOpen={dialogConfig.isOpen}
+          type={dialogConfig.type}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmText={dialogConfig.confirmText}
+          cancelText={dialogConfig.cancelText}
+          isDestructive={dialogConfig.isDestructive}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={dialogConfig.onCancel}
+        />
+      )}
     </div>
   );
 }

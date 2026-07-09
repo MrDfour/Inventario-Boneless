@@ -14,6 +14,7 @@ import {
   FolderLock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { CustomDialog } from './CustomDialog';
 
 interface InsumosPanelProps {
   insumos: Insumo[];
@@ -40,6 +41,47 @@ export default function InsumosPanel({
   onUpdateCatalogoItem,
   onDeleteCatalogoItem
 }: InsumosPanelProps) {
+  // Estados para diálogos personalizados
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'Aceptar',
+      onConfirm: () => setDialogConfig(null)
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, isDestructive = false) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Confirmar',
+      cancelText: 'Cancelar',
+      isDestructive,
+      onConfirm: () => {
+        onConfirm();
+        setDialogConfig(null);
+      },
+      onCancel: () => setDialogConfig(null)
+    });
+  };
+
   // Modals de creación, compra, edición e inventario/catálogo
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBuyModal, setShowBuyModal] = useState(false);
@@ -116,14 +158,14 @@ export default function InsumosPanel({
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre || precioCompra <= 0 || cantidadCompra <= 0) {
-      alert('Por favor llena los campos requeridos correctamente');
+      showAlert('Campos Incompletos', 'Por favor llena los campos requeridos correctamente');
       return;
     }
 
     // Validar si ya existe este insumo en Almacén para evitar duplicados
     const duplicadoEnAlmacen = insumos.some(ins => ins.nombre.trim().toLowerCase() === nombre.trim().toLowerCase());
     if (duplicadoEnAlmacen) {
-      alert(`El ingrediente "${nombre}" ya existe en tu Almacén de insumos. Si deseas agregar más inventario o registrar otra compra, usa la opción de "Reabastecer" (carrito de compras) del ingrediente para que se administre correctamente con el sistema FIFO de lotes.`);
+      showAlert('Insumo Existente', `El ingrediente "${nombre}" ya existe en tu Almacén de insumos. Si deseas agregar más inventario o registrar otra compra, usa la opción de "Reabastecer" (carrito de compras) del ingrediente para que se administre correctamente con el sistema FIFO de lotes.`);
       return;
     }
 
@@ -150,7 +192,7 @@ export default function InsumosPanel({
   const handleBuySubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedInsumoId || cantidadAComprar <= 0 || precioCompraNueva <= 0) {
-      alert('Por favor ingresa valores válidos');
+      showAlert('Valores Inválidos', 'Por favor ingresa valores válidos');
       return;
     }
     onRegistrarCompra(selectedInsumoId, cantidadAComprar, precioCompraNueva);
@@ -386,9 +428,12 @@ export default function InsumosPanel({
                             </button>
                             <button
                               onClick={() => {
-                                if (confirm(`¿Estás seguro de que quieres eliminar "${insumo.nombre}"? Esto afectará las recetas que utilicen este ingrediente.`)) {
-                                  onDeleteInsumo(insumo.id);
-                                }
+                                showConfirm(
+                                  'Eliminar Insumo',
+                                  `¿Estás seguro de que quieres eliminar "${insumo.nombre}"? Esto afectará las recetas que utilicen este ingrediente.`,
+                                  () => onDeleteInsumo(insumo.id),
+                                  true
+                                );
                               }}
                               className="p-2.5 text-rose-400 hover:bg-rose-500/10 rounded-xl transition"
                               title="Eliminar Insumo"
@@ -551,9 +596,12 @@ export default function InsumosPanel({
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm(`¿Estás seguro de que deseas eliminar "${insumo.nombre}"?`)) {
-                            onDeleteInsumo(insumo.id);
-                          }
+                          showConfirm(
+                            'Eliminar Insumo',
+                            `¿Estás seguro de que deseas eliminar "${insumo.nombre}"?`,
+                            () => onDeleteInsumo(insumo.id),
+                            true
+                          );
                         }}
                         className="p-2 text-rose-400 hover:text-rose-500 hover:bg-rose-950/20 rounded-xl transition"
                       >
@@ -1013,6 +1061,21 @@ export default function InsumosPanel({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Diálogo personalizado */}
+      {dialogConfig && (
+        <CustomDialog
+          isOpen={dialogConfig.isOpen}
+          type={dialogConfig.type}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmText={dialogConfig.confirmText}
+          cancelText={dialogConfig.cancelText}
+          isDestructive={dialogConfig.isDestructive}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={dialogConfig.onCancel}
+        />
+      )}
     </div>
   );
 }
