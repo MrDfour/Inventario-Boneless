@@ -1,11 +1,19 @@
-import { Insumo, Platillo, Venta, CompraHistorial } from '../types';
+import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo } from '../types';
 
 const STORAGE_KEYS = {
   INSUMOS: 'boneless_inventario_insumos',
   PLATILLOS: 'boneless_inventario_platillos',
   VENTAS: 'boneless_inventario_ventas',
   COMPRAS: 'boneless_inventario_compras',
+  CATALOGO: 'boneless_inventario_catalogo',
 };
+
+const CATALOGO_SEMILLA: CatalogoInsumo[] = [
+  { id: 'cat_pollo', nombre: 'Pechuga de Pollo', unidadMedida: 'g', alertaMinimo: 1000 },
+  { id: 'cat_salsa', nombre: 'Salsa Especial (Botella 5L)', unidadMedida: 'ml', alertaMinimo: 1500 },
+  { id: 'cat_charola', nombre: 'Charolas de Servicio', unidadMedida: 'unidades', alertaMinimo: 10 },
+  { id: 'cat_papas', nombre: 'Papas a la Francesa (Bolsa 2.5kg)', unidadMedida: 'g', alertaMinimo: 800 },
+];
 
 // Datos semilla basados en el ejemplo del usuario
 const INSUMOS_SEMILLA: Insumo[] = [
@@ -132,15 +140,56 @@ const COMPRAS_SEMILLA: CompraHistorial[] = [
 
 export function loadInsumos(): Insumo[] {
   const data = localStorage.getItem(STORAGE_KEYS.INSUMOS);
+  let list: Insumo[] = [];
   if (!data) {
-    saveInsumos(INSUMOS_SEMILLA);
-    return INSUMOS_SEMILLA;
+    list = INSUMOS_SEMILLA;
+    saveInsumos(list);
+  } else {
+    list = JSON.parse(data);
   }
-  return JSON.parse(data);
+
+  // Asegurar que todos los insumos tengan la lista de lotes (FIFO) inicializada
+  let modificado = false;
+  const listConLotes = list.map(ins => {
+    if (!ins.lotes || ins.lotes.length === 0) {
+      modificado = true;
+      return {
+        ...ins,
+        lotes: [{
+          id: `lote_init_${ins.id}_${Date.now()}`,
+          cantidadInicial: ins.cantidadActual,
+          cantidadRestante: ins.cantidadActual,
+          precioCompraTotal: ins.cantidadActual * ins.costoUnitario,
+          costoUnitario: ins.costoUnitario,
+          fecha: new Date().toISOString()
+        }]
+      };
+    }
+    return ins;
+  });
+
+  if (modificado) {
+    saveInsumos(listConLotes);
+  }
+
+  return listConLotes;
 }
 
 export function saveInsumos(insumos: Insumo[]): void {
   localStorage.setItem(STORAGE_KEYS.INSUMOS, JSON.stringify(insumos));
+}
+
+export function loadCatalogo(): CatalogoInsumo[] {
+  const data = localStorage.getItem(STORAGE_KEYS.CATALOGO);
+  if (!data) {
+    saveCatalogo(CATALOGO_SEMILLA);
+    return CATALOGO_SEMILLA;
+  }
+  return JSON.parse(data);
+}
+
+export function saveCatalogo(catalogo: CatalogoInsumo[]): void {
+  localStorage.setItem(STORAGE_KEYS.CATALOGO, JSON.stringify(catalogo));
 }
 
 export function loadPlatillos(): Platillo[] {
@@ -187,6 +236,7 @@ export function clearAllStorage(): void {
   localStorage.removeItem(STORAGE_KEYS.PLATILLOS);
   localStorage.removeItem(STORAGE_KEYS.VENTAS);
   localStorage.removeItem(STORAGE_KEYS.COMPRAS);
+  localStorage.removeItem(STORAGE_KEYS.CATALOGO);
   window.location.reload();
 }
 
@@ -196,6 +246,7 @@ export function exportDataAsJSON(): string {
     platillos: loadPlatillos(),
     ventas: loadVentas(),
     compras: loadCompras(),
+    catalogo: loadCatalogo(),
     exportDate: new Date().toISOString()
   };
   return JSON.stringify(data, null, 2);
@@ -209,6 +260,9 @@ export function importDataFromJSON(jsonString: string): boolean {
       savePlatillos(data.platillos);
       saveVentas(data.ventas);
       saveCompras(data.compras);
+      if (data.catalogo) {
+        saveCatalogo(data.catalogo);
+      }
       return true;
     }
     return false;

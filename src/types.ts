@@ -1,3 +1,19 @@
+export interface LoteInsumo {
+  id: string;
+  cantidadInicial: number; // cantidad original comprada en este lote
+  cantidadRestante: number; // cantidad que queda disponible
+  precioCompraTotal: number; // costo total pagado por este lote
+  costoUnitario: number; // precioCompraTotal / cantidadInicial
+  fecha: string; // ISO string
+}
+
+export interface CatalogoInsumo {
+  id: string;
+  nombre: string;
+  unidadMedida: 'g' | 'ml' | 'unidades' | 'piezas';
+  alertaMinimo: number;
+}
+
 export interface Insumo {
   id: string;
   nombre: string;
@@ -7,6 +23,7 @@ export interface Insumo {
   cantidadCompraReciente: number; // cantidad comprada en la última compra (ej: 1000g, 5000ml, 20 unidades)
   costoUnitario: number; // precioCompraReciente / cantidadCompraReciente (costo por gramo, ml o unidad)
   alertaMinimo: number; // nivel de stock mínimo en la unidad base para activar alertas
+  lotes?: LoteInsumo[]; // FIFO lotes queue
 }
 
 export interface IngredienteReceta {

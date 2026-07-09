@@ -7,9 +7,11 @@ import {
   loadVentas, 
   saveVentas, 
   loadCompras, 
-  saveCompras 
+  saveCompras,
+  loadCatalogo,
+  saveCatalogo
 } from './utils/storage';
-import { Insumo, Platillo, Venta, CompraHistorial } from './types';
+import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo, LoteInsumo } from './types';
 import DashboardHome from './components/DashboardHome';
 import InsumosPanel from './components/InsumosPanel';
 import PlatillosPanel from './components/PlatillosPanel';
@@ -27,12 +29,130 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
+// --- FUNCIONES AUXILIARES PARA EL CONTROL DE INVENTARIOS CON FIFO ---
+
+function actualizarInsumoDesdeLotes(ins: Insumo): Insumo {
+  const lotesDisponibles = (ins.lotes || []).filter(l => l.cantidadRestante > 0);
+  
+  if (lotesDisponibles.length === 0) {
+    return {
+      ...ins,
+      cantidadActual: 0,
+      lotes: [],
+    };
+  }
+
+  const cantidadActual = lotesDisponibles.reduce((sum, l) => sum + l.cantidadRestante, 0);
+  const oldestLote = lotesDisponibles[0]; // El más antiguo disponible (FIFO)
+
+  return {
+    ...ins,
+    cantidadActual,
+    costoUnitario: oldestLote.costoUnitario,
+    precioCompraReciente: oldestLote.precioCompraTotal,
+    cantidadCompraReciente: oldestLote.cantidadInicial,
+    lotes: lotesDisponibles,
+  };
+}
+
+function ajustarLotesPorStockManual(lotes: LoteInsumo[], nuevoStock: number, defaultCostoUnitario: number): LoteInsumo[] {
+  const currentStock = lotes.reduce((sum, l) => sum + l.cantidadRestante, 0);
+  if (nuevoStock === currentStock) return lotes;
+
+  if (nuevoStock < currentStock) {
+    // Reducir stock (FIFO)
+    let aEliminar = currentStock - nuevoStock;
+    const resultado: LoteInsumo[] = [];
+    for (const lote of lotes) {
+      if (aEliminar <= 0) {
+        resultado.push(lote);
+      } else if (lote.cantidadRestante <= aEliminar) {
+        aEliminar -= lote.cantidadRestante;
+      } else {
+        resultado.push({
+          ...lote,
+          cantidadRestante: lote.cantidadRestante - aEliminar
+        });
+        aEliminar = 0;
+      }
+    }
+    return resultado;
+  } else {
+    // Incrementar stock
+    const diferencia = nuevoStock - currentStock;
+    if (lotes.length > 0) {
+      return lotes.map((lote, idx) => {
+        if (idx === 0) {
+          return {
+            ...lote,
+            cantidadRestante: lote.cantidadRestante + diferencia,
+            cantidadInicial: lote.cantidadInicial + diferencia,
+            precioCompraTotal: lote.precioCompraTotal + (diferencia * lote.costoUnitario)
+          };
+        }
+        return lote;
+      });
+    } else {
+      return [{
+        id: `lote_manual_${Date.now()}`,
+        cantidadInicial: diferencia,
+        cantidadRestante: diferencia,
+        precioCompraTotal: diferencia * defaultCostoUnitario,
+        costoUnitario: defaultCostoUnitario,
+        fecha: new Date().toISOString()
+      }];
+    }
+  }
+}
+
+function consumirInsumoFIFO(insumo: Insumo, cantidadARestar: number): { updatedInsumo: Insumo, costoConsumido: number } {
+  const lotes = insumo.lotes ? [...insumo.lotes] : [];
+  let restantePorRestar = cantidadARestar;
+  let costoConsumido = 0;
+
+  const updatedLotes: LoteInsumo[] = [];
+
+  for (const lote of lotes) {
+    if (restantePorRestar <= 0) {
+      updatedLotes.push(lote);
+    } else if (lote.cantidadRestante <= restantePorRestar) {
+      restantePorRestar -= lote.cantidadRestante;
+      costoConsumido += lote.cantidadRestante * lote.costoUnitario;
+    } else {
+      costoConsumido += restantePorRestar * lote.costoUnitario;
+      updatedLotes.push({
+        ...lote,
+        cantidadRestante: lote.cantidadRestante - restantePorRestar
+      });
+      restantePorRestar = 0;
+    }
+  }
+
+  if (restantePorRestar > 0 && lotes.length > 0) {
+    const ultimoLote = lotes[lotes.length - 1];
+    costoConsumido += restantePorRestar * ultimoLote.costoUnitario;
+  }
+
+  const insumoConNuevosLotes = {
+    ...insumo,
+    lotes: updatedLotes
+  };
+
+  const updatedInsumo = actualizarInsumoDesdeLotes(insumoConNuevosLotes);
+
+  return {
+    updatedInsumo,
+    costoConsumido
+  };
+}
+
 export default function App() {
   // Inicialización de estados locales cargados del localStorage
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [platillos, setPlatillos] = useState<Platillo[]>([]);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [compras, setCompras] = useState<CompraHistorial[]>([]);
+  const [catalogo, setCatalogo] = useState<CatalogoInsumo[]>([]);
   
   // Estado para la pestaña seleccionada
   const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'platillos' | 'ventas' | 'reportes'>('dashboard');
@@ -46,6 +166,7 @@ export default function App() {
     setPlatillos(loadPlatillos());
     setVentas(loadVentas());
     setCompras(loadCompras());
+    setCatalogo(loadCatalogo());
   }, []);
 
   // Función para forzar la recarga de estados tras una importación
@@ -54,17 +175,91 @@ export default function App() {
     setPlatillos(loadPlatillos());
     setVentas(loadVentas());
     setCompras(loadCompras());
+    setCatalogo(loadCatalogo());
     setActiveTab('dashboard');
+  };
+
+  // --- CONTROL DEL CATÁLOGO ---
+  const handleAddCatalogoItem = (item: Omit<CatalogoInsumo, 'id'>) => {
+    const exist = catalogo.some(c => c.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase());
+    if (exist) {
+      alert('Ya existe un ingrediente con este nombre en el catálogo (evita duplicados con o sin mayúsculas).');
+      return false;
+    }
+    const newItem: CatalogoInsumo = {
+      ...item,
+      id: 'cat_' + Date.now()
+    };
+    const updated = [...catalogo, newItem];
+    setCatalogo(updated);
+    saveCatalogo(updated);
+    return true;
+  };
+
+  const handleUpdateCatalogoItem = (id: string, fields: Partial<CatalogoInsumo>) => {
+    if (fields.nombre) {
+      const exist = catalogo.some(c => c.id !== id && c.nombre.trim().toLowerCase() === fields.nombre!.trim().toLowerCase());
+      if (exist) {
+        alert('Ya existe otro ingrediente con este nombre en el catálogo.');
+        return false;
+      }
+    }
+    const updated = catalogo.map(c => c.id === id ? { ...c, ...fields } : c);
+    setCatalogo(updated);
+    saveCatalogo(updated);
+    
+    // Sincronizar cambios del catálogo con insumos activos en el almacén
+    const originalItem = catalogo.find(c => c.id === id);
+    if (originalItem) {
+      const updatedInsumos = insumos.map(ins => {
+        if (ins.nombre.trim().toLowerCase() === originalItem.nombre.trim().toLowerCase()) {
+          return {
+            ...ins,
+            nombre: fields.nombre || ins.nombre,
+            unidadMedida: fields.unidadMedida || ins.unidadMedida
+          };
+        }
+        return ins;
+      });
+      setInsumos(updatedInsumos);
+      saveInsumos(updatedInsumos);
+    }
+    return true;
+  };
+
+  const handleDeleteCatalogoItem = (id: string) => {
+    const item = catalogo.find(c => c.id === id);
+    if (!item) return;
+
+    const enUso = insumos.some(ins => ins.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase());
+    if (enUso) {
+      alert('No puedes eliminar este insumo del catálogo porque está en uso en tu almacén.');
+      return;
+    }
+
+    const updated = catalogo.filter(c => c.id !== id);
+    setCatalogo(updated);
+    saveCatalogo(updated);
   };
 
   // --- CONTROL DE INSUMOS ---
   const handleAddInsumo = (nuevoInsumo: Omit<Insumo, 'id' | 'costoUnitario'>) => {
     const id = `ins_` + Date.now();
     const costoUnitario = nuevoInsumo.precioCompraReciente / nuevoInsumo.cantidadCompraReciente;
+    const stockInicial = nuevoInsumo.cantidadActual;
+    const loteInicial: LoteInsumo = {
+      id: `lote_` + Date.now(),
+      cantidadInicial: stockInicial,
+      cantidadRestante: stockInicial,
+      precioCompraTotal: stockInicial * costoUnitario,
+      costoUnitario: costoUnitario,
+      fecha: new Date().toISOString()
+    };
     const insumoCompleto: Insumo = {
       ...nuevoInsumo,
       id,
       costoUnitario,
+      lotes: [loteInicial],
     };
     const updated = [insumoCompleto, ...insumos];
     setInsumos(updated);
@@ -88,10 +283,12 @@ export default function App() {
   const handleUpdateInsumo = (id: string, fields: Partial<Insumo>) => {
     const updated = insumos.map(ins => {
       if (ins.id === id) {
-        const temp = { ...ins, ...fields };
-        // Si se alteró el precio o cantidad de compra reciente en la edición, recalculamos costo unitario
-        if (fields.precioCompraReciente !== undefined || fields.cantidadCompraReciente !== undefined) {
-          temp.costoUnitario = temp.precioCompraReciente / temp.cantidadCompraReciente;
+        let temp = { ...ins, ...fields };
+        // Si se alteró la cantidadActual, ajustamos los lotes correspondientes
+        if (fields.cantidadActual !== undefined && fields.cantidadActual !== ins.cantidadActual) {
+          const lotesAjustados = ajustarLotesPorStockManual(ins.lotes || [], fields.cantidadActual, ins.costoUnitario);
+          temp.lotes = lotesAjustados;
+          temp = actualizarInsumoDesdeLotes(temp);
         }
         return temp;
       }
@@ -111,15 +308,23 @@ export default function App() {
   const handleRegistrarCompra = (insumoId: string, cantidad: number, precio: number) => {
     const updatedInsumos = insumos.map(ins => {
       if (ins.id === insumoId) {
-        const nuevoStock = ins.cantidadActual + cantidad;
-        const nuevoCostoUnitario = precio / cantidad; // Último precio pagado
-        return {
-          ...ins,
-          cantidadActual: nuevoStock,
-          precioCompraReciente: precio,
-          cantidadCompraReciente: cantidad,
+        const lotesExistentes = ins.lotes || [];
+        const nuevoCostoUnitario = precio / cantidad;
+        const nuevoLote: LoteInsumo = {
+          id: `lote_` + Date.now(),
+          cantidadInicial: cantidad,
+          cantidadRestante: cantidad,
+          precioCompraTotal: precio,
           costoUnitario: nuevoCostoUnitario,
+          fecha: new Date().toISOString()
         };
+
+        const insumoConLotes = {
+          ...ins,
+          lotes: [...lotesExistentes, nuevoLote]
+        };
+
+        return actualizarInsumoDesdeLotes(insumoConLotes);
       }
       return ins;
     });
@@ -170,7 +375,7 @@ export default function App() {
     savePlatillos(updated);
   };
 
-  // --- REGISTRAR VENTA (INTEGRIDAD DE INVENTARIOS EN TIEMPO REAL) ---
+  // --- REGISTRAR VENTA (INTEGRIDAD DE INVENTARIOS EN TIEMPO REAL CON FIFO) ---
   const handleRegistrarVenta = (platilloId: string, cantidadVendida: number) => {
     const platillo = platillos.find(p => p.id === platilloId);
     if (!platillo) return { success: false, errorMsg: 'Platillo no encontrado.' };
@@ -201,28 +406,26 @@ export default function App() {
       };
     }
 
-    // 2. Descontar Insumos Proporcionalmente del Almacén en tiempo real
-    const updatedInsumos = insumos.map(ins => {
-      const ingredienteReceta = platillo.ingredientes.find(ing => ing.insumoId === ins.id);
-      if (ingredienteReceta) {
-        const cantidadARestar = ingredienteReceta.cantidad * cantidadVendida;
-        return {
-          ...ins,
-          cantidadActual: Math.max(0, ins.cantidadActual - cantidadARestar),
-        };
+    // 2. Descontar Insumos Proporcionalmente del Almacén usando FIFO en tiempo real
+    let costoInsumosTotal = 0;
+    const tempInsumosMap = new Map<string, Insumo>();
+    insumos.forEach(ins => tempInsumosMap.set(ins.id, { ...ins }));
+
+    platillo.ingredientes.forEach(ingrediente => {
+      const ins = tempInsumosMap.get(ingrediente.insumoId);
+      if (ins) {
+        const cantidadARestar = ingrediente.cantidad * cantidadVendida;
+        const { updatedInsumo, costoConsumido } = consumirInsumoFIFO(ins, cantidadARestar);
+        tempInsumosMap.set(ins.id, updatedInsumo);
+        costoInsumosTotal += costoConsumido;
       }
-      return ins;
     });
+
+    const updatedInsumos = insumos.map(ins => tempInsumosMap.get(ins.id) || ins);
     setInsumos(updatedInsumos);
     saveInsumos(updatedInsumos);
 
-    // 3. Calcular Costos Exactos y Registrar Operación Comercial
-    const costoInsumosTotal = platillo.ingredientes.reduce((sum, ing) => {
-      const ins = insumos.find(i => i.id === ing.insumoId);
-      if (!ins) return sum;
-      return sum + (ing.cantidad * ins.costoUnitario);
-    }, 0) * cantidadVendida;
-
+    // 3. Registrar Operación Comercial con Margen Exacto
     const precioVentaTotal = platillo.precioVenta * cantidadVendida;
     const margenTotal = precioVentaTotal - costoInsumosTotal;
 
@@ -245,7 +448,7 @@ export default function App() {
     return { success: true };
   };
 
-  // --- ANULAR VENTA (RESTAURACIÓN DE INVENTARIO) ---
+  // --- ANULAR VENTA (RESTAURACIÓN DE INVENTARIO FIFO) ---
   const handleAnularVenta = (ventaId: string) => {
     const venta = ventas.find(v => v.id === ventaId);
     if (!venta) return;
@@ -258,24 +461,36 @@ export default function App() {
         const ingredienteReceta = platillo.ingredientes.find(ing => ing.insumoId === ins.id);
         if (ingredienteReceta) {
           const cantidadARestaurar = ingredienteReceta.cantidad * venta.cantidad;
-          return {
+          const lotesActuales = ins.lotes || [];
+          let nuevosLotes = [...lotesActuales];
+          if (nuevosLotes.length > 0) {
+            nuevosLotes[0] = {
+              ...nuevosLotes[0],
+              cantidadRestante: nuevosLotes[0].cantidadRestante + cantidadARestaurar,
+              cantidadInicial: nuevosLotes[0].cantidadInicial + cantidadARestaurar,
+              precioCompraTotal: nuevosLotes[0].precioCompraTotal + (cantidadARestaurar * nuevosLotes[0].costoUnitario)
+            };
+          } else {
+            nuevosLotes = [{
+              id: `lote_restored_${Date.now()}`,
+              cantidadInicial: cantidadARestaurar,
+              cantidadRestante: cantidadARestaurar,
+              precioCompraTotal: cantidadARestaurar * ins.costoUnitario,
+              costoUnitario: ins.costoUnitario,
+              fecha: new Date().toISOString()
+            }];
+          }
+          return actualizarInsumoDesdeLotes({
             ...ins,
-            cantidadActual: ins.cantidadActual + cantidadARaurarIngrediente(cantidadARestaurar),
-          };
+            lotes: nuevosLotes
+          });
         }
         return ins;
       });
 
-      // Función auxiliar interna para consistencia de nombres
-      function cantidadARaurarIngrediente(val: number) {
-        return val;
-      }
-
       setInsumos(updatedInsumos);
       saveInsumos(updatedInsumos);
     } else {
-      // Si el platillo fue eliminado, intentamos restaurar según la venta si tenemos el mapeado,
-      // pero como política simple le avisamos al usuario que se restauraron los montos globales.
       alert('Nota: El platillo original fue eliminado de las recetas de comida, por lo que el inventario no se modificó para evitar inconsistencias de fórmula. La venta se eliminó del historial contable.');
     }
 
@@ -433,10 +648,14 @@ export default function App() {
             <InsumosPanel 
               insumos={insumos}
               compras={compras}
+              catalogo={catalogo}
               onAddInsumo={handleAddInsumo}
               onUpdateInsumo={handleUpdateInsumo}
               onDeleteInsumo={handleDeleteInsumo}
               onRegistrarCompra={handleRegistrarCompra}
+              onAddCatalogoItem={handleAddCatalogoItem}
+              onUpdateCatalogoItem={handleUpdateCatalogoItem}
+              onDeleteCatalogoItem={handleDeleteCatalogoItem}
             />
           )}
 
