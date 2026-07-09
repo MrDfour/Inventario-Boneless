@@ -1,10 +1,6 @@
 name: Build Native Apps (Android & Windows)
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       version:
@@ -50,7 +46,7 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor
-        run: npx cap sync
+        run: npx cap sync android
 
       - name: Build APK (Debug)
         working-directory: android
