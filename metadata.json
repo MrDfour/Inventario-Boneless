@@ -1,0 +1,6 @@
+{
+  "name": "Sistema de Inventario Boneless",
+  "description": "Herramienta local de gestión de inventario, recetas, ventas y cálculo de costos y márgenes para negocios de boneless y comida rápida.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
