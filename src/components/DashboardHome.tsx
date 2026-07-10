@@ -28,6 +28,28 @@ export default function DashboardHome({ insumos, ventas, platillos, onNavigate }
   // 2. Identificar insumos con stock crítico (por debajo del mínimo)
   const insumosAlertas = insumos.filter(i => i.cantidadActual <= i.alertaMinimo);
 
+  // 2.5 Identificar lotes próximos a vencer (en 2 días o menos, o ya vencidos)
+  const lotesPorCaducar = insumos.flatMap(ins => 
+    (ins.lotes || []).map((l, index) => {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const fechaCaducidad = new Date(l.fechaCaducidad);
+      fechaCaducidad.setHours(0, 0, 0, 0);
+      const diffTime = fechaCaducidad.getTime() - hoy.getTime();
+      const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return {
+        insumoId: ins.id,
+        insumoNombre: ins.nombre,
+        unidadMedida: ins.unidadMedida,
+        loteId: l.id,
+        cantidadRestante: l.cantidadRestante,
+        fechaCaducidad: l.fechaCaducidad,
+        diasRestantes,
+        loteNumero: index + 1
+      };
+    })
+  ).filter(item => item.diasRestantes <= 2);
+
   // 3. Ventas totales e ingresos
   const totalVentasRegistradas = ventas.reduce((acc, v) => acc + v.cantidad, 0);
   const ingresosTotales = ventas.reduce((acc, v) => acc + v.precioVentaTotal, 0);
@@ -211,6 +233,45 @@ export default function DashboardHome({ insumos, ventas, platillos, onNavigate }
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alertas de Caducidad Próxima */}
+      {lotesPorCaducar.length > 0 && (
+        <div className="bg-amber-950/20 border border-amber-900/50 rounded-2xl p-6 shadow-xl" id="expiration-alerts">
+          <div className="flex items-start gap-4">
+            <div className="p-2.5 bg-amber-900/30 border border-amber-800/40 text-amber-400 rounded-xl mt-0.5">
+              <AlertTriangle className="h-5.5 w-5.5 flex-shrink-0 animate-pulse text-amber-500" />
+            </div>
+            <div className="flex-grow">
+              <h4 className="text-sm font-extrabold text-amber-200 uppercase tracking-wide font-sans">Alertas de Caducidad Próxima (Máx 2 días)</h4>
+              <p className="text-xs text-amber-300/80 mt-1 leading-relaxed">
+                Los siguientes lotes de inventario están vencidos o próximos a vencer en los siguientes 2 días. Consúmelos con prioridad:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 mt-4">
+                {lotesPorCaducar.map(item => {
+                  const esVencido = item.diasRestantes <= 0;
+                  return (
+                    <div key={item.loteId} className={`bg-slate-900/90 border p-4 rounded-xl flex items-center justify-between shadow-md ${esVencido ? 'border-rose-900/40' : 'border-amber-900/40'}`}>
+                      <div>
+                        <p className="text-xs font-bold text-white">{item.insumoNombre} (Lote #{item.loteNumero})</p>
+                        <p className="text-xs font-mono text-slate-300 font-extrabold mt-1">
+                          {item.cantidadRestante.toLocaleString('es-MX')} {item.unidadMedida}
+                        </p>
+                      </div>
+                      <span className={`text-[10px] font-mono px-2.5 py-0.5 rounded-full font-bold border ${
+                        esVencido 
+                          ? 'bg-rose-950 text-rose-300 border-rose-900/40' 
+                          : 'bg-amber-950 text-amber-300 border-amber-900/40'
+                      }`}>
+                        {esVencido ? 'Vencido' : `Vence en ${item.diasRestantes} ${item.diasRestantes === 1 ? 'día' : 'días'}`}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

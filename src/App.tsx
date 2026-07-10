@@ -10,7 +10,8 @@ import {
   loadCompras, 
   saveCompras,
   loadCatalogo,
-  saveCatalogo
+  saveCatalogo,
+  getFallbackCaducidad
 } from './utils/storage';
 import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo, LoteInsumo } from './types';
 import DashboardHome from './components/DashboardHome';
@@ -26,7 +27,8 @@ import {
   LayoutDashboard,
   UtensilsCrossed,
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { CustomDialog } from './components/CustomDialog';
@@ -101,7 +103,8 @@ function ajustarLotesPorStockManual(lotes: LoteInsumo[], nuevoStock: number, def
         cantidadRestante: diferencia,
         precioCompraTotal: diferencia * defaultCostoUnitario,
         costoUnitario: defaultCostoUnitario,
-        fecha: new Date().toISOString()
+        fecha: new Date().toISOString(),
+        fechaCaducidad: getFallbackCaducidad()
       }];
     }
   }
@@ -339,7 +342,7 @@ export default function App() {
   };
 
   // --- CONTROL DE INSUMOS ---
-  const handleAddInsumo = (nuevoInsumo: Omit<Insumo, 'id' | 'costoUnitario'>) => {
+  const handleAddInsumo = (nuevoInsumo: Omit<Insumo, 'id' | 'costoUnitario'>, fechaCaducidad?: string) => {
     const id = `ins_` + Date.now();
     const costoUnitario = nuevoInsumo.precioCompraReciente / nuevoInsumo.cantidadCompraReciente;
     const stockInicial = nuevoInsumo.cantidadActual;
@@ -349,7 +352,8 @@ export default function App() {
       cantidadRestante: stockInicial,
       precioCompraTotal: stockInicial * costoUnitario,
       costoUnitario: costoUnitario,
-      fecha: new Date().toISOString()
+      fecha: new Date().toISOString(),
+      fechaCaducidad: getFallbackCaducidad(fechaCaducidad)
     };
     const insumoCompleto: Insumo = {
       ...nuevoInsumo,
@@ -380,8 +384,12 @@ export default function App() {
     const updated = insumos.map(ins => {
       if (ins.id === id) {
         let temp = { ...ins, ...fields };
+        // Si se pasaron los lotes modificados directamente
+        if (fields.lotes !== undefined) {
+          temp = actualizarInsumoDesdeLotes(temp);
+        }
         // Si se alteró la cantidadActual, ajustamos los lotes correspondientes
-        if (fields.cantidadActual !== undefined && fields.cantidadActual !== ins.cantidadActual) {
+        else if (fields.cantidadActual !== undefined && fields.cantidadActual !== ins.cantidadActual) {
           const lotesAjustados = ajustarLotesPorStockManual(ins.lotes || [], fields.cantidadActual, ins.costoUnitario);
           temp.lotes = lotesAjustados;
           temp = actualizarInsumoDesdeLotes(temp);
@@ -401,7 +409,7 @@ export default function App() {
   };
 
   // Reabastecer stock de un ingrediente y registrar gasto de compra
-  const handleRegistrarCompra = (insumoId: string, cantidad: number, precio: number) => {
+  const handleRegistrarCompra = (insumoId: string, cantidad: number, precio: number, fechaCaducidad?: string) => {
     const updatedInsumos = insumos.map(ins => {
       if (ins.id === insumoId) {
         const lotesExistentes = ins.lotes || [];
@@ -412,7 +420,8 @@ export default function App() {
           cantidadRestante: cantidad,
           precioCompraTotal: precio,
           costoUnitario: nuevoCostoUnitario,
-          fecha: new Date().toISOString()
+          fecha: new Date().toISOString(),
+          fechaCaducidad: getFallbackCaducidad(fechaCaducidad)
         };
 
         const insumoConLotes = {
@@ -573,7 +582,8 @@ export default function App() {
               cantidadRestante: cantidadARestaurar,
               precioCompraTotal: cantidadARestaurar * ins.costoUnitario,
               costoUnitario: ins.costoUnitario,
-              fecha: new Date().toISOString()
+              fecha: new Date().toISOString(),
+              fechaCaducidad: getFallbackCaducidad()
             }];
           }
           return actualizarInsumoDesdeLotes({
@@ -595,6 +605,20 @@ export default function App() {
     setVentas(updatedVentas);
     saveVentas(updatedVentas);
   };
+
+  // Calcular cantidad de lotes próximos a vencer (vence en <= 2 días o ya vencido)
+  const lotesPorCaducarCount = insumos.reduce((acc, ins) => {
+    const lotesCaducando = (ins.lotes || []).filter(l => {
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      const fechaCaducidad = new Date(l.fechaCaducidad);
+      fechaCaducidad.setHours(0, 0, 0, 0);
+      const diffTime = fechaCaducidad.getTime() - hoy.getTime();
+      const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diasRestantes <= 2;
+    });
+    return acc + lotesCaducando.length;
+  }, 0);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-orange-600/30 selection:text-orange-200">
@@ -679,14 +703,23 @@ export default function App() {
           {/* Insumos */}
           <button
             onClick={() => setActiveTab('insumos')}
-            className={`flex items-center gap-2.5 py-3 px-4 rounded-xl text-sm font-semibold transition duration-200 whitespace-nowrap md:w-full border ${
+            className={`flex items-center gap-2.5 py-3 px-4 rounded-xl text-sm font-semibold transition duration-200 whitespace-nowrap md:w-full border relative ${
               activeTab === 'insumos' 
                 ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-500/15 border-orange-500/40' 
                 : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/60 border-transparent'
             }`}
           >
             <Package className="h-4.5 w-4.5" />
-            <span>Almacén (Insumos)</span>
+            <span className="flex-grow text-left">Almacén (Insumos)</span>
+            {lotesPorCaducarCount > 0 && (
+              <span 
+                className="flex items-center justify-center bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse border border-rose-500/30"
+                title={`${lotesPorCaducarCount} lote(s) cerca de caducar o vencidos`}
+              >
+                <AlertTriangle className="h-3 w-3 mr-0.5" />
+                {lotesPorCaducarCount}
+              </span>
+            )}
           </button>
 
           {/* Platillos */}

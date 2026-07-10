@@ -11,19 +11,21 @@ import {
   CheckCircle2,
   X,
   Layers,
-  FolderLock
+  FolderLock,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CustomDialog } from './CustomDialog';
+import { LoteInsumo } from '../types';
 
 interface InsumosPanelProps {
   insumos: Insumo[];
   compras: CompraHistorial[];
   catalogo: CatalogoInsumo[];
-  onAddInsumo: (insumo: Omit<Insumo, 'id' | 'costoUnitario'>) => void;
+  onAddInsumo: (insumo: Omit<Insumo, 'id' | 'costoUnitario'>, fechaCaducidad?: string) => void;
   onUpdateInsumo: (id: string, insumo: Partial<Insumo>) => void;
   onDeleteInsumo: (id: string) => void;
-  onRegistrarCompra: (insumoId: string, cantidad: number, precio: number) => void;
+  onRegistrarCompra: (insumoId: string, cantidad: number, precio: number, fechaCaducidad?: string) => void;
   onAddCatalogoItem: (item: Omit<CatalogoInsumo, 'id'>) => boolean;
   onUpdateCatalogoItem: (id: string, item: Partial<CatalogoInsumo>) => boolean;
   onDeleteCatalogoItem: (id: string) => void;
@@ -96,16 +98,23 @@ export default function InsumosPanel({
   const [cantidadCompra, setCantidadCompra] = useState<number>(0);
   const [stockInicial, setStockInicial] = useState<number>(0);
   const [alertaMinimo, setAlertaMinimo] = useState<number>(0);
+  const [fechaCaducidadInicial, setFechaCaducidadInicial] = useState('');
 
   // Estados del formulario para comprar insumo (FIFO)
   const [cantidadAComprar, setCantidadAComprar] = useState<number>(0);
   const [precioCompraNueva, setPrecioCompraNueva] = useState<number>(0);
+  const [fechaCaducidadNueva, setFechaCaducidadNueva] = useState('');
 
   // Estados para edición de insumos existentes
   const [editingInsumoId, setEditingInsumoId] = useState<string | null>(null);
   const [editNombre, setEditNombre] = useState('');
   const [editAlertaMinimo, setEditAlertaMinimo] = useState<number>(0);
   const [editCantidadActual, setEditCantidadActual] = useState<number>(0);
+
+  // Estados para administrar lotes
+  const [showLotesModal, setShowLotesModal] = useState(false);
+  const [selectedLotesInsumoId, setSelectedLotesInsumoId] = useState<string | null>(null);
+  const [tempLotes, setTempLotes] = useState<LoteInsumo[]>([]);
 
   // Estados para agregar/editar catálogo
   const [catNombre, setCatNombre] = useState('');
@@ -176,7 +185,7 @@ export default function InsumosPanel({
       cantidadCompraReciente: cantidadCompra,
       cantidadActual: stockInicial || 0,
       alertaMinimo: alertaMinimo || 0,
-    });
+    }, fechaCaducidadInicial || undefined);
 
     // Limpiar campos
     setSelectedCatalogoId('');
@@ -185,6 +194,7 @@ export default function InsumosPanel({
     setCantidadCompra(0);
     setStockInicial(0);
     setAlertaMinimo(0);
+    setFechaCaducidadInicial('');
     setShowAddModal(false);
   };
 
@@ -195,9 +205,10 @@ export default function InsumosPanel({
       showAlert('Valores Inválidos', 'Por favor ingresa valores válidos');
       return;
     }
-    onRegistrarCompra(selectedInsumoId, cantidadAComprar, precioCompraNueva);
+    onRegistrarCompra(selectedInsumoId, cantidadAComprar, precioCompraNueva, fechaCaducidadNueva || undefined);
     setCantidadAComprar(0);
     setPrecioCompraNueva(0);
+    setFechaCaducidadNueva('');
     setShowBuyModal(false);
     setSelectedInsumoId(null);
   };
@@ -219,6 +230,27 @@ export default function InsumosPanel({
       cantidadActual: editCantidadActual,
     });
     setEditingInsumoId(null);
+  };
+
+  // Administrar lotes manualmente
+  const openManageLotesModal = (id: string) => {
+    const insumo = insumos.find(i => i.id === id);
+    if (!insumo) return;
+    setSelectedLotesInsumoId(id);
+    setTempLotes(insumo.lotes ? [...insumo.lotes] : []);
+    setShowLotesModal(true);
+  };
+
+  const handleSaveLotes = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLotesInsumoId) return;
+
+    onUpdateInsumo(selectedLotesInsumoId, {
+      lotes: tempLotes
+    });
+
+    setShowLotesModal(false);
+    setSelectedLotesInsumoId(null);
   };
 
   const openBuyModal = (id: string) => {
@@ -292,6 +324,17 @@ export default function InsumosPanel({
                   const esAlerta = insumo.cantidadActual <= insumo.alertaMinimo;
                   const esEdicion = editingInsumoId === insumo.id;
 
+                  const lotesCaducando = (insumo.lotes || []).filter(l => {
+                    const hoy = new Date();
+                    hoy.setHours(0, 0, 0, 0);
+                    const fechaCaducidad = new Date(l.fechaCaducidad);
+                    fechaCaducidad.setHours(0, 0, 0, 0);
+                    const diffTime = fechaCaducidad.getTime() - hoy.getTime();
+                    const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diasRestantes <= 2;
+                  });
+                  const tieneCaducidadCerca = lotesCaducando.length > 0;
+
                   return (
                     <tr key={insumo.id} className={`transition-colors duration-150 ${esAlerta ? 'bg-rose-950/10' : 'hover:bg-slate-800/20'}`}>
                       {/* Nombre, tipo y lotes */}
@@ -312,6 +355,11 @@ export default function InsumosPanel({
                                   <AlertTriangle className="h-4 w-4" />
                                 </span>
                               )}
+                              {tieneCaducidadCerca && (
+                                <span className="p-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded animate-pulse" title="¡Lotes vencidos o por vencer!">
+                                  <AlertTriangle className="h-4 w-4" />
+                                </span>
+                              )}
                             </div>
                             
                             {/* Visualizador de lotes FIFO activos en tabla */}
@@ -319,16 +367,36 @@ export default function InsumosPanel({
                               <div className="pt-2">
                                 <span className="text-[9px] uppercase tracking-wider font-extrabold text-orange-400/80 block mb-1">Inventario FIFO Lotes Activos:</span>
                                 <div className="flex flex-wrap gap-1.5">
-                                  {insumo.lotes.map((l, idx) => (
-                                    <span 
-                                      key={l.id} 
-                                      className="inline-flex items-center gap-1 bg-slate-950 px-2 py-0.5 rounded text-[10px] font-mono text-slate-300 border border-slate-800/70"
-                                      title={`Lote de compra #${idx + 1} de ${l.cantidadInicial.toLocaleString()} comprado en $${l.precioCompraTotal.toFixed(2)} el ${new Date(l.fecha).toLocaleDateString()}`}
-                                    >
-                                      <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                                      L{idx + 1}: <span className="font-extrabold text-white">{l.cantidadRestante.toLocaleString()}</span> {insumo.unidadMedida} @ ${l.costoUnitario.toFixed(4)}
-                                    </span>
-                                  ))}
+                                  {insumo.lotes.map((l, idx) => {
+                                    const hoy = new Date();
+                                    hoy.setHours(0, 0, 0, 0);
+                                    const fCad = new Date(l.fechaCaducidad);
+                                    fCad.setHours(0, 0, 0, 0);
+                                    const diff = fCad.getTime() - hoy.getTime();
+                                    const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                                    const esVencido = dias <= 0;
+                                    const esCerca = dias > 0 && dias <= 2;
+
+                                    return (
+                                      <span 
+                                        key={l.id} 
+                                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${
+                                          esVencido 
+                                            ? 'bg-rose-950/60 text-rose-300 border-rose-900/40' 
+                                            : esCerca 
+                                              ? 'bg-amber-950/60 text-amber-300 border-amber-900/40' 
+                                              : 'bg-slate-950 text-slate-300 border-slate-800/70'
+                                        }`}
+                                        title={`Lote de compra #${idx + 1} de ${l.cantidadInicial.toLocaleString()} comprado en $${l.precioCompraTotal.toFixed(2)} el ${new Date(l.fecha).toLocaleDateString()}. Vence el: ${new Date(l.fechaCaducidad).toLocaleDateString()}`}
+                                      >
+                                        <span className={`w-1.5 h-1.5 rounded-full ${esVencido ? 'bg-rose-500 animate-pulse' : esCerca ? 'bg-amber-500 animate-pulse' : 'bg-orange-500'}`}></span>
+                                        L{idx + 1}: <span className="font-extrabold text-white">{l.cantidadRestante.toLocaleString()}</span> {insumo.unidadMedida} @ ${l.costoUnitario.toFixed(4)}
+                                        <span className="text-[9px] opacity-75">
+                                          (Vence: {new Date(l.fechaCaducidad).toLocaleDateString('es-MX', {month: 'short', day: 'numeric'})})
+                                        </span>
+                                      </span>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -420,6 +488,13 @@ export default function InsumosPanel({
                               <ShoppingCart className="h-4.5 w-4.5" />
                             </button>
                             <button
+                              onClick={() => openManageLotesModal(insumo.id)}
+                              className="p-2.5 text-amber-400 hover:bg-amber-500/10 rounded-xl transition"
+                              title="Administrar Lotes y Caducidades"
+                            >
+                              <Calendar className="h-4.5 w-4.5" />
+                            </button>
+                            <button
                               onClick={() => startEdit(insumo)}
                               className="p-2.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 rounded-xl transition"
                               title="Editar stock manual y alertas"
@@ -463,6 +538,17 @@ export default function InsumosPanel({
             const esAlerta = insumo.cantidadActual <= insumo.alertaMinimo;
             const esEdicion = editingInsumoId === insumo.id;
 
+            const lotesCaducando = (insumo.lotes || []).filter(l => {
+              const hoy = new Date();
+              hoy.setHours(0, 0, 0, 0);
+              const fechaCaducidad = new Date(l.fechaCaducidad);
+              fechaCaducidad.setHours(0, 0, 0, 0);
+              const diffTime = fechaCaducidad.getTime() - hoy.getTime();
+              const diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              return diasRestantes <= 2;
+            });
+            const tieneCaducidadCerca = lotesCaducando.length > 0;
+
             return (
               <div 
                 key={insumo.id} 
@@ -482,7 +568,12 @@ export default function InsumosPanel({
                       <h3 className="font-bold text-white text-base flex items-center gap-2">
                         {insumo.nombre}
                         {esAlerta && (
-                          <span className="p-1 bg-rose-500/15 text-rose-400 border border-rose-500/20 rounded-lg">
+                          <span className="p-1 bg-rose-500/15 text-rose-400 border border-rose-500/20 rounded-lg" title="¡Stock Crítico!">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          </span>
+                        )}
+                        {tieneCaducidadCerca && (
+                          <span className="p-1 bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded-lg" title="¡Lotes por caducar / caducados!">
                             <AlertTriangle className="h-3.5 w-3.5" />
                           </span>
                         )}
@@ -548,14 +639,31 @@ export default function InsumosPanel({
                   <div className="space-y-1.5 bg-slate-950/20 p-3 rounded-xl border border-slate-800/30 text-[11px]">
                     <span className="text-orange-400 font-bold block text-[10px] uppercase tracking-wider">Lotes FIFO Activos</span>
                     <div className="divide-y divide-slate-800/40 space-y-1">
-                      {insumo.lotes.map((lote, index) => (
-                        <div key={lote.id} className="flex justify-between text-slate-300 pt-1 font-mono">
-                          <span>Lote #{index + 1}:</span>
-                          <span className="font-bold text-white">
-                            {lote.cantidadRestante.toLocaleString('es-MX')} {insumo.unidadMedida} @ ${lote.costoUnitario.toFixed(4)}
-                          </span>
-                        </div>
-                      ))}
+                      {insumo.lotes.map((lote, index) => {
+                        const hoy = new Date();
+                        hoy.setHours(0, 0, 0, 0);
+                        const fCad = new Date(lote.fechaCaducidad);
+                        fCad.setHours(0, 0, 0, 0);
+                        const diff = fCad.getTime() - hoy.getTime();
+                        const dias = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                        const esVencido = dias <= 0;
+                        const esCerca = dias > 0 && dias <= 2;
+
+                        return (
+                          <div key={lote.id} className="flex justify-between text-slate-300 pt-1 font-mono items-center">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`w-1.5 h-1.5 rounded-full ${esVencido ? 'bg-rose-500 animate-pulse' : esCerca ? 'bg-amber-500 animate-pulse' : 'bg-orange-500'}`}></span>
+                              <span>Lote #{index + 1}:</span>
+                            </span>
+                            <span className="font-bold text-white text-right">
+                              {lote.cantidadRestante.toLocaleString('es-MX')} {insumo.unidadMedida} @ ${lote.costoUnitario.toFixed(4)}
+                              <span className={`block text-[9px] font-normal ${esVencido ? 'text-rose-400 font-bold' : esCerca ? 'text-amber-400 font-bold' : 'text-slate-400'}`}>
+                                Vence: {new Date(lote.fechaCaducidad).toLocaleDateString('es-MX')}
+                              </span>
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -587,6 +695,12 @@ export default function InsumosPanel({
                         className="flex items-center gap-1.5 bg-orange-600/10 hover:bg-orange-600/20 text-orange-400 font-bold px-3 py-2 rounded-xl text-xs border border-orange-500/20 active:scale-95 transition"
                       >
                         <ShoppingCart className="h-3.5 w-3.5" /> Reabastecer
+                      </button>
+                      <button
+                        onClick={() => openManageLotesModal(insumo.id)}
+                        className="flex items-center gap-1.5 bg-amber-600/10 hover:bg-amber-600/20 text-amber-400 font-bold px-3 py-2 rounded-xl text-xs border border-amber-500/20 active:scale-95 transition"
+                      >
+                        <Calendar className="h-3.5 w-3.5" /> Lotes
                       </button>
                       <button
                         onClick={() => startEdit(insumo)}
@@ -940,6 +1054,18 @@ export default function InsumosPanel({
                       <p className="text-[10px] text-slate-500 mt-1.5">Ingresar en la unidad seleccionada ({unidadMedida}).</p>
                     </div>
 
+                    {/* Fecha de Caducidad (Optativo) */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-300 block mb-1.5 uppercase tracking-wide">Fecha de Caducidad (Opcional)</label>
+                      <input
+                        type="date"
+                        value={fechaCaducidadInicial}
+                        onChange={(e) => setFechaCaducidadInicial(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 font-mono"
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">Si no se ingresa, se calculará automáticamente para dentro de un año.</p>
+                    </div>
+
                     <div className="flex justify-end gap-3 pt-2">
                       <button
                         type="button"
@@ -1025,6 +1151,18 @@ export default function InsumosPanel({
                         </div>
                       </div>
 
+                      {/* Fecha de Caducidad (Optativo) */}
+                      <div>
+                        <label className="text-xs font-bold text-slate-300 block mb-1.5 uppercase tracking-wide">Fecha de Caducidad (Opcional)</label>
+                        <input
+                          type="date"
+                          value={fechaCaducidadNueva}
+                          onChange={(e) => setFechaCaducidadNueva(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500 font-mono"
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1">Si no se ingresa, se calculará automáticamente para dentro de un año.</p>
+                      </div>
+
                       <div className="bg-emerald-950/20 p-4 rounded-xl border border-emerald-900/40">
                         <h4 className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
                           <CheckCircle2 className="h-4 w-4" /> Inteligencia de Lotes (FIFO)
@@ -1051,6 +1189,191 @@ export default function InsumosPanel({
                           className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-2 px-4 rounded-xl text-sm transition shadow-lg shadow-emerald-500/10"
                         >
                           Registrar Lote de Compra
+                        </button>
+                      </div>
+                    </form>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: Administrar Lotes y Caducidades */}
+      <AnimatePresence>
+        {showLotesModal && selectedLotesInsumoId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl max-w-lg w-full overflow-hidden text-slate-100"
+            >
+              {(() => {
+                const insumo = insumos.find(i => i.id === selectedLotesInsumoId);
+                if (!insumo) return null;
+                const totalEstimado = tempLotes.reduce((sum, l) => sum + l.cantidadRestante, 0);
+
+                return (
+                  <>
+                    <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-950/60">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-amber-400" />
+                        <h3 className="font-sans font-extrabold text-white text-base">Administrar Lotes - {insumo.nombre}</h3>
+                      </div>
+                      <button onClick={() => { setShowLotesModal(false); setSelectedLotesInsumoId(null); }} className="text-slate-400 hover:text-white transition">
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveLotes} className="p-5 space-y-4">
+                      <p className="text-xs text-slate-300 leading-relaxed">
+                        Edita la cantidad disponible o la fecha de caducidad de cada lote de este ingrediente. Si reduces la cantidad a 0, el lote se eliminará al guardar.
+                      </p>
+
+                      <div className="space-y-3.5 max-h-[300px] overflow-y-auto pr-1">
+                        {tempLotes.length === 0 ? (
+                          <div className="text-center py-8 text-slate-500 italic text-xs">
+                            No hay lotes activos para este ingrediente. Puedes agregar stock con la opción "Reabastecer".
+                          </div>
+                        ) : (
+                          tempLotes.map((lote, index) => (
+                            <div key={lote.id} className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 space-y-2.5 relative">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-mono font-bold text-slate-400">Lote #{index + 1}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">Creado: {new Date(lote.fecha).toLocaleDateString()}</span>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                {/* Cantidad disponible */}
+                                <div>
+                                  <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wide">Cantidad Restante</label>
+                                  <div className="relative">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      required
+                                      value={lote.cantidadRestante === 0 ? '' : lote.cantidadRestante}
+                                      onChange={(e) => {
+                                        const val = Number(e.target.value);
+                                        setTempLotes(prev => prev.map(item => item.id === lote.id ? { ...item, cantidadRestante: val } : item));
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-850 rounded-lg pl-2.5 pr-8 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                                    />
+                                    <span className="absolute right-2 top-2 text-[10px] text-slate-500 font-bold">{insumo.unidadMedida}</span>
+                                  </div>
+                                </div>
+
+                                {/* Fecha de caducidad */}
+                                <div>
+                                  <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wide">Fecha de Caducidad</label>
+                                  <input
+                                    type="date"
+                                    required
+                                    value={lote.fechaCaducidad}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setTempLotes(prev => prev.map(item => item.id === lote.id ? { ...item, fechaCaducidad: val } : item));
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-850 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Registro de Mermas (Lote Completo o Parcial) */}
+                              <div className="border-t border-slate-800/80 pt-2.5 mt-2 space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[10px] font-bold text-rose-450 uppercase tracking-wide">Control de Mermas / Desperdicio</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      showConfirm(
+                                        'Merma de Lote Completo',
+                                        `¿Estás seguro de que deseas marcar todo este lote (${lote.cantidadRestante} ${insumo.unidadMedida}) como merma/desperdicio? Esto no afectará las ventas y descontará el producto del inventario.`,
+                                        () => {
+                                          setTempLotes(prev => prev.map(item => item.id === lote.id ? { ...item, cantidadRestante: 0 } : item));
+                                        },
+                                        true
+                                      );
+                                    }}
+                                    className="text-rose-400 hover:text-rose-350 hover:bg-rose-500/10 text-[9px] font-extrabold border border-rose-500/30 px-2 py-1 rounded transition"
+                                  >
+                                    Declarar Lote Completo como Merma
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-slate-450 font-bold">Descontar Cantidad:</span>
+                                  <div className="relative flex-grow max-w-[150px]">
+                                    <input
+                                      type="number"
+                                      step="any"
+                                      placeholder="Ej: 500"
+                                      id={`merma_input_${lote.id}`}
+                                      className="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-rose-500"
+                                    />
+                                    <span className="absolute right-2 top-1 text-[10px] text-slate-500 font-bold">{insumo.unidadMedida}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const inputEl = document.getElementById(`merma_input_${lote.id}`) as HTMLInputElement;
+                                      const val = Number(inputEl?.value || 0);
+                                      if (val <= 0) return;
+                                      if (val > lote.cantidadRestante) {
+                                        showAlert('Cantidad Excedida', 'La merma no puede ser mayor que la cantidad restante en el lote.');
+                                        return;
+                                      }
+                                      setTempLotes(prev => prev.map(item => {
+                                        if (item.id === lote.id) {
+                                          const nuevaCant = Math.max(0, item.cantidadRestante - val);
+                                          return { ...item, cantidadRestante: nuevaCant };
+                                        }
+                                        return item;
+                                      }));
+                                      if (inputEl) inputEl.value = '';
+                                    }}
+                                    className="bg-rose-700 hover:bg-rose-600 text-white text-[10px] font-extrabold px-3 py-1.5 rounded transition"
+                                  >
+                                    Descontar Merma
+                                  </button>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTempLotes(prev => prev.filter(item => item.id !== lote.id));
+                                }}
+                                className="absolute top-2 right-2 text-rose-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition"
+                                title="Eliminar Lote"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex justify-between items-center text-xs font-mono">
+                        <span className="text-slate-400">Total de Stock Estimado:</span>
+                        <span className="font-extrabold text-white text-sm">{totalEstimado.toLocaleString('es-MX')} {insumo.unidadMedida}</span>
+                      </div>
+
+                      <div className="flex justify-end gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShowLotesModal(false); setSelectedLotesInsumoId(null); }}
+                          className="bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold py-2 px-4 rounded-xl text-sm transition"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-xl text-sm transition shadow-lg shadow-amber-500/10"
+                        >
+                          Guardar Cambios
                         </button>
                       </div>
                     </form>

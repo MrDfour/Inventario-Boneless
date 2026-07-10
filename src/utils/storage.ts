@@ -138,6 +138,13 @@ const COMPRAS_SEMILLA: CompraHistorial[] = [
   },
 ];
 
+export function getFallbackCaducidad(customDate?: string): string {
+  if (customDate) return customDate;
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
+}
+
 export function loadInsumos(): Insumo[] {
   const data = localStorage.getItem(STORAGE_KEYS.INSUMOS);
   let list: Insumo[] = [];
@@ -148,24 +155,43 @@ export function loadInsumos(): Insumo[] {
     list = JSON.parse(data);
   }
 
-  // Asegurar que todos los insumos tengan la lista de lotes (FIFO) inicializada
+  // Asegurar que todos los insumos tengan la lista de lotes (FIFO) inicializada y con fecha de caducidad
   let modificado = false;
   const listConLotes = list.map(ins => {
-    if (!ins.lotes || ins.lotes.length === 0) {
+    let updatedLotes = ins.lotes || [];
+    if (updatedLotes.length === 0) {
       modificado = true;
-      return {
-        ...ins,
-        lotes: [{
-          id: `lote_init_${ins.id}_${Date.now()}`,
-          cantidadInicial: ins.cantidadActual,
-          cantidadRestante: ins.cantidadActual,
-          precioCompraTotal: ins.cantidadActual * ins.costoUnitario,
-          costoUnitario: ins.costoUnitario,
-          fecha: new Date().toISOString()
-        }]
-      };
+      updatedLotes = [{
+        id: `lote_init_${ins.id}_${Date.now()}`,
+        cantidadInicial: ins.cantidadActual,
+        cantidadRestante: ins.cantidadActual,
+        precioCompraTotal: ins.cantidadActual * ins.costoUnitario,
+        costoUnitario: ins.costoUnitario,
+        fecha: new Date().toISOString(),
+        fechaCaducidad: getFallbackCaducidad()
+      }];
+    } else {
+      // Checar si algún lote existente no tiene fechaCaducidad
+      updatedLotes = updatedLotes.map(l => {
+        if (!l.fechaCaducidad) {
+          modificado = true;
+          const creationDate = new Date(l.fecha);
+          const baseDate = isNaN(creationDate.getTime()) ? new Date() : creationDate;
+          const fallbackDate = new Date(baseDate);
+          fallbackDate.setFullYear(fallbackDate.getFullYear() + 1);
+          return {
+            ...l,
+            fechaCaducidad: fallbackDate.toISOString().split('T')[0]
+          };
+        }
+        return l;
+      });
     }
-    return ins;
+    
+    return {
+      ...ins,
+      lotes: updatedLotes
+    };
   });
 
   if (modificado) {
