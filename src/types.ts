@@ -5,6 +5,7 @@ export interface LoteInsumo {
   precioCompraTotal: number; // costo total pagado por este lote
   costoUnitario: number; // precioCompraTotal / cantidadInicial
   fecha: string; // ISO string
+  fechaCaducidad: string; // YYYY-MM-DD
 }
 
 export interface CatalogoInsumo {
