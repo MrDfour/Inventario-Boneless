@@ -18,6 +18,10 @@ import {
   importDataFromJSON, 
   clearAllStorage 
 } from '../utils/storage';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { CustomDialog } from './CustomDialog';
 
 interface ReportesPanelProps {
   insumos: Insumo[];
@@ -31,6 +35,47 @@ export default function ReportesPanel({ insumos, ventas, compras, onDataImported
   const [errorImport, setErrorImport] = useState<string | null>(null);
   const [exitoImport, setExitoImport] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados para diálogos personalizados
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'Aceptar',
+      onConfirm: () => setDialogConfig(null)
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, isDestructive = false) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Confirmar',
+      cancelText: 'Cancelar',
+      isDestructive,
+      onConfirm: () => {
+        onConfirm();
+        setDialogConfig(null);
+      },
+      onCancel: () => setDialogConfig(null)
+    });
+  };
 
   // Cálculos contables
   const valorInventarioFinalActual = insumos.reduce((acc, i) => acc + (i.cantidadActual * i.costoUnitario), 0);
@@ -46,7 +91,7 @@ export default function ReportesPanel({ insumos, ventas, compras, onDataImported
   // Exportar a CSV de Ventas
   const handleExportCSVVentas = () => {
     if (ventas.length === 0) {
-      alert('No hay ventas registradas para exportar.');
+      showAlert('Sin Ventas', 'No hay ventas registradas para exportar.');
       return;
     }
     
@@ -103,16 +148,40 @@ export default function ReportesPanel({ insumos, ventas, compras, onDataImported
   };
 
   // Descargar respaldo JSON
-  const handleDownloadJSON = () => {
+  const handleDownloadJSON = async () => {
     const dataStr = exportDataAsJSON();
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
-    
     const exportFileDefaultName = `respaldo_inventario_boneless_${new Date().toISOString().split('T')[0]}.json`;
     
-    const linkElement = document.createElement('a');
-    linkElement.setAttribute('href', dataUri);
-    linkElement.setAttribute('download', exportFileDefaultName);
-    linkElement.click();
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await Filesystem.writeFile({
+          path: exportFileDefaultName,
+          data: dataStr,
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
+        });
+
+        const fileUri = await Filesystem.getUri({
+          directory: Directory.Cache,
+          path: exportFileDefaultName,
+        });
+
+        await Share.share({
+          title: 'Respaldo de Inventario Boneless',
+          url: fileUri.uri,
+          dialogTitle: 'Guardar respaldo en...',
+        });
+      } catch (err) {
+        console.error('Error al descargar/compartir respaldo en Android:', err);
+        showAlert('Error de Respaldo', 'No se pudo descargar el respaldo: ' + (err instanceof Error ? err.message : String(err)));
+      }
+    } else {
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+    }
   };
 
   // Importar respaldo JSON
@@ -358,22 +427,42 @@ MÁRGENES DE OPERACIÓN COMERCIAL:
               <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
                 <Trash2 className="h-4 w-4 text-rose-500" /> Resetear Base de Datos Local
               </h4>
-              <p className="text-[11px] text-slate-400 mt-1">Borra toda la información ingresada y restaura los ejemplos iniciales de comida.</p>
+              <p className="text-[11px] text-slate-400 mt-1">Borra toda la información y configuración guardada para empezar desde cero con un inventario vacío.</p>
             </div>
             <button
               onClick={() => {
-                if (confirm('¡CUIDADO! Esta acción borrará permanentemente todo tu inventario, platillos y ventas registrados. ¿Estás seguro de que deseas continuar?')) {
-                  clearAllStorage();
-                  window.location.reload();
-                }
+                showConfirm(
+                  'Confirmar Reset',
+                  '¡CUIDADO! Esta acción borrará permanentemente todo tu inventario, platillos, ventas y catálogo registrados. ¿Estás seguro de que deseas continuar?',
+                  () => {
+                    clearAllStorage();
+                    window.location.reload();
+                  },
+                  true
+                );
               }}
               className="mt-4 w-full bg-rose-950/20 hover:bg-rose-950/40 border border-rose-900/30 text-rose-400 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
             >
-              <Trash2 className="h-3.5 w-3.5" /> Borrar todo e iniciar ejemplos
+              <Trash2 className="h-3.5 w-3.5" /> Borrar todo y empezar de cero
             </button>
           </div>
         </div>
       </div>
+
+      {/* Diálogo personalizado */}
+      {dialogConfig && (
+        <CustomDialog
+          isOpen={dialogConfig.isOpen}
+          type={dialogConfig.type}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmText={dialogConfig.confirmText}
+          cancelText={dialogConfig.cancelText}
+          isDestructive={dialogConfig.isDestructive}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={dialogConfig.onCancel}
+        />
+      )}
     </div>
   );
 }

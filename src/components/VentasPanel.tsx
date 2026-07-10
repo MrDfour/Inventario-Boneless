@@ -11,6 +11,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { CustomDialog } from './CustomDialog';
 
 interface VentasPanelProps {
   ventas: Venta[];
@@ -31,6 +32,47 @@ export default function VentasPanel({
   const [cantidadVenta, setCantidadVenta] = useState<number>(1);
   const [mensajeExito, setMensajeExito] = useState<string | null>(null);
   const [mensajeError, setMensajeError] = useState<string | null>(null);
+
+  // Estados para diálogos personalizados
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'Aceptar',
+      onConfirm: () => setDialogConfig(null)
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, isDestructive = false) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Confirmar',
+      cancelText: 'Cancelar',
+      isDestructive,
+      onConfirm: () => {
+        onConfirm();
+        setDialogConfig(null);
+      },
+      onCancel: () => setDialogConfig(null)
+    });
+  };
 
   const handleVentaSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,9 +259,12 @@ export default function VentasPanel({
 
                       <button
                         onClick={() => {
-                          if (confirm(`¿Estás seguro de que quieres anular esta venta? Esto RESTAURARÁ todos los insumos de la receta al almacén.`)) {
-                            onAnularVenta(venta.id);
-                          }
+                          showConfirm(
+                            'Anular Venta',
+                            '¿Estás seguro de que quieres anular esta venta? Esto RESTAURARÁ todos los insumos de la receta al almacén.',
+                            () => onAnularVenta(venta.id),
+                            true
+                          );
                         }}
                         className="text-slate-500 hover:text-rose-400 p-1 hover:bg-rose-500/10 rounded transition self-end sm:self-auto flex items-center gap-1 text-[10px] font-mono font-bold"
                         title="Anular venta y devolver stock"
@@ -234,6 +279,21 @@ export default function VentasPanel({
           </div>
         </div>
       </div>
+
+      {/* Diálogo personalizado */}
+      {dialogConfig && (
+        <CustomDialog
+          isOpen={dialogConfig.isOpen}
+          type={dialogConfig.type}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmText={dialogConfig.confirmText}
+          cancelText={dialogConfig.cancelText}
+          isDestructive={dialogConfig.isDestructive}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={dialogConfig.onCancel}
+        />
+      )}
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { CustomDialog } from './components/CustomDialog';
 
 // --- FUNCIONES AUXILIARES PARA EL CONTROL DE INVENTARIOS CON FIFO ---
 
@@ -160,6 +161,47 @@ export default function App() {
   // Estado para mostrar ayuda de uso rápido
   const [showHelp, setShowHelp] = useState(false);
 
+  // Estados para diálogos personalizados
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'alert';
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'alert',
+      title,
+      message,
+      confirmText: 'Aceptar',
+      onConfirm: () => setDialogConfig(null)
+    });
+  };
+
+  const showConfirm = (title: string, message: string, onConfirm: () => void, isDestructive = false) => {
+    setDialogConfig({
+      isOpen: true,
+      type: 'confirm',
+      title,
+      message,
+      confirmText: 'Confirmar',
+      cancelText: 'Cancelar',
+      isDestructive,
+      onConfirm: () => {
+        onConfirm();
+        setDialogConfig(null);
+      },
+      onCancel: () => setDialogConfig(null)
+    });
+  };
+
   // Cargar datos en el primer render
   useEffect(() => {
     setInsumos(loadInsumos());
@@ -183,7 +225,7 @@ export default function App() {
   const handleAddCatalogoItem = (item: Omit<CatalogoInsumo, 'id'>) => {
     const exist = catalogo.some(c => c.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase());
     if (exist) {
-      alert('Ya existe un ingrediente con este nombre en el catálogo (evita duplicados con o sin mayúsculas).');
+      showAlert('Duplicado en Catálogo', 'Ya existe un ingrediente con este nombre en el catálogo (evita duplicados con o sin mayúsculas).');
       return false;
     }
     const newItem: CatalogoInsumo = {
@@ -200,7 +242,7 @@ export default function App() {
     if (fields.nombre) {
       const exist = catalogo.some(c => c.id !== id && c.nombre.trim().toLowerCase() === fields.nombre!.trim().toLowerCase());
       if (exist) {
-        alert('Ya existe otro ingrediente con este nombre en el catálogo.');
+        showAlert('Nombre Duplicado', 'Ya existe otro ingrediente con este nombre en el catálogo.');
         return false;
       }
     }
@@ -233,7 +275,7 @@ export default function App() {
 
     const enUso = insumos.some(ins => ins.nombre.trim().toLowerCase() === item.nombre.trim().toLowerCase());
     if (enUso) {
-      alert('No puedes eliminar este insumo del catálogo porque está en uso en tu almacén.');
+      showAlert('Insumo en Uso', 'No puedes eliminar este insumo del catálogo porque está en uso en tu almacén.');
       return;
     }
 
@@ -491,7 +533,7 @@ export default function App() {
       setInsumos(updatedInsumos);
       saveInsumos(updatedInsumos);
     } else {
-      alert('Nota: El platillo original fue eliminado de las recetas de comida, por lo que el inventario no se modificó para evitar inconsistencias de fórmula. La venta se eliminó del historial contable.');
+      showAlert('Venta Anulada', 'Nota: El platillo original fue eliminado de las recetas de comida, por lo que el inventario no se modificó para evitar inconsistencias de fórmula. La venta se eliminó del historial contable.');
     }
 
     // Remover del historial
@@ -697,6 +739,21 @@ export default function App() {
           <p className="mt-1.5 text-[10px] text-slate-600 max-w-lg mx-auto leading-relaxed">Almacenamiento 100% local y seguro en tu navegador. Sin bases de datos externas, manteniendo la privacidad absoluta de tus costos e ingresos.</p>
         </div>
       </footer>
+
+      {/* Diálogo personalizado */}
+      {dialogConfig && (
+        <CustomDialog
+          isOpen={dialogConfig.isOpen}
+          type={dialogConfig.type}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmText={dialogConfig.confirmText}
+          cancelText={dialogConfig.cancelText}
+          isDestructive={dialogConfig.isDestructive}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={dialogConfig.onCancel}
+        />
+      )}
     </div>
   );
 }
