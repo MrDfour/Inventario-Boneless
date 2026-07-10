@@ -92,7 +92,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Inventario-Boneless-Windows-EXE
-          path: dist-electron/*.exe
+          path: |
+            dist-electron/*.exe
+            dist-electron/latest.yml
           if-no-files-found: error
 
   create-release:
@@ -122,5 +124,6 @@ jobs:
           files: |
             ./artifacts/Inventario-Boneless.apk
             ./artifacts/*.exe
+            ./artifacts/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

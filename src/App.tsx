@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { 
   loadInsumos, 
   saveInsumos, 
@@ -209,6 +210,59 @@ export default function App() {
     setVentas(loadVentas());
     setCompras(loadCompras());
     setCatalogo(loadCatalogo());
+  }, []);
+
+  // Verificar actualizaciones en Android
+  useEffect(() => {
+    if (Capacitor.getPlatform() === 'android') {
+      const checkAndroidUpdates = async () => {
+        try {
+          const res = await fetch('https://api.github.com/repos/MrDfour/Inventario-Boneless/releases/latest');
+          if (res.ok) {
+            const data = await res.json();
+            const latestTag = data.tag_name;
+            const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0';
+            
+            // Comparar versiones (semver simple)
+            const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number);
+            const [currMajor, currMinor, currPatch] = parse(currentVersion);
+            const [latMajor, latMinor, latPatch] = parse(latestTag);
+            
+            let isNewer = false;
+            if (latMajor !== currMajor) {
+              isNewer = latMajor > currMajor;
+            } else if (latMinor !== currMinor) {
+              isNewer = latMinor > currMinor;
+            } else {
+              isNewer = latPatch > currPatch;
+            }
+
+            if (isNewer) {
+              setDialogConfig({
+                isOpen: true,
+                type: 'confirm',
+                title: 'Actualización disponible',
+                message: `Una nueva versión (${latestTag}) está disponible para Android. ¿Deseas descargar el nuevo APK ahora?`,
+                confirmText: 'Descargar',
+                cancelText: 'Más tarde',
+                onConfirm: () => {
+                  window.open(data.html_url, '_system');
+                  setDialogConfig(null);
+                },
+                onCancel: () => {
+                  setDialogConfig(null);
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Error al verificar actualizaciones en Android:', err);
+        }
+      };
+      // Esperar un momento antes de verificar para no sobrecargar el inicio de la app
+      const timer = setTimeout(checkAndroidUpdates, 3000);
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   // Función para forzar la recarga de estados tras una importación
