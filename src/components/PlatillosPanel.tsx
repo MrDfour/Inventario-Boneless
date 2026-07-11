@@ -9,7 +9,8 @@ import {
   DollarSign,
   AlertCircle,
   X,
-  Info
+  Info,
+  Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CustomDialog } from './CustomDialog';
@@ -31,11 +32,40 @@ export default function PlatillosPanel({
 }: PlatillosPanelProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSimulador, setShowSimulador] = useState(false);
+  const [editingPlatilloId, setEditingPlatilloId] = useState<string | null>(null);
 
   // Estados para nuevo Platillo
   const [nombre, setNombre] = useState('');
   const [precioVenta, setPrecioVenta] = useState<number>(0);
   const [ingredientesReceta, setIngredientesReceta] = useState<IngredienteReceta[]>([]);
+
+  const resetForm = () => {
+    setNombre('');
+    setPrecioVenta(0);
+    setIngredientesReceta([]);
+    setEditingPlatilloId(null);
+    setSelectedInsumoId('');
+    setCantidadIngrediente(0);
+    setShowAddModal(false);
+  };
+
+  const handleEditPlatillo = (platillo: Platillo) => {
+    setEditingPlatilloId(platillo.id);
+    setNombre(platillo.nombre);
+    setPrecioVenta(platillo.precioVenta);
+    setIngredientesReceta([...platillo.ingredientes]);
+    setShowAddModal(true);
+  };
+
+  const handleOpenAddModal = () => {
+    setNombre('');
+    setPrecioVenta(0);
+    setIngredientesReceta([]);
+    setEditingPlatilloId(null);
+    setSelectedInsumoId('');
+    setCantidadIngrediente(0);
+    setShowAddModal(true);
+  };
 
   // Estados auxiliares para agregar ingrediente a la receta actual en creación
   const [selectedInsumoId, setSelectedInsumoId] = useState('');
@@ -123,16 +153,20 @@ export default function PlatillosPanel({
       showAlert('Campos Incompletos', 'Por favor, ingresa el nombre, el precio de venta y al menos un ingrediente.');
       return;
     }
-    onAddPlatillo({
-      nombre,
-      precioVenta,
-      ingredientes: ingredientesReceta,
-    });
-    // Limpiar formulario
-    setNombre('');
-    setPrecioVenta(0);
-    setIngredientesReceta([]);
-    setShowAddModal(false);
+    if (editingPlatilloId) {
+      onUpdatePlatillo(editingPlatilloId, {
+        nombre,
+        precioVenta,
+        ingredientes: ingredientesReceta,
+      });
+    } else {
+      onAddPlatillo({
+        nombre,
+        precioVenta,
+        ingredientes: ingredientesReceta,
+      });
+    }
+    resetForm();
   };
 
   // Simulación dinámica
@@ -187,7 +221,7 @@ export default function PlatillosPanel({
             <Calculator className="h-4 w-4 text-orange-400" /> Simulador Rápido
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAddModal}
             className="flex-1 sm:flex-initial bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold py-2.5 px-5 rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-orange-500/10 transition duration-200"
           >
             <Plus className="h-4.5 w-4.5" /> Nueva Receta
@@ -222,20 +256,29 @@ export default function PlatillosPanel({
                         Receta ID: <span className="text-slate-400">{platillo.id.slice(0, 8)}</span>
                       </p>
                     </div>
-                    <button
-                      onClick={() => {
-                        showConfirm(
-                          'Eliminar Platillo',
-                          `¿Estás seguro de que quieres eliminar el platillo "${platillo.nombre}"?`,
-                          () => onDeletePlatillo(platillo.id),
-                          true
-                        );
-                      }}
-                      className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
-                      title="Eliminar Platillo"
-                    >
-                      <Trash2 className="h-4.5 w-4.5" />
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleEditPlatillo(platillo)}
+                        className="p-2 text-slate-400 hover:text-orange-400 hover:bg-orange-500/10 rounded-lg transition"
+                        title="Editar Platillo"
+                      >
+                        <Pencil className="h-4.5 w-4.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          showConfirm(
+                            'Eliminar Platillo',
+                            `¿Estás seguro de que quieres eliminar el platillo "${platillo.nombre}"?`,
+                            () => onDeletePlatillo(platillo.id),
+                            true
+                          );
+                        }}
+                        className="p-2 text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                        title="Eliminar Platillo"
+                      >
+                        <Trash2 className="h-4.5 w-4.5" />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Detalle de Ingredientes / Receta */}
@@ -299,9 +342,11 @@ export default function PlatillosPanel({
               <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-950/60">
                 <div className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-orange-400" />
-                  <h3 className="font-sans font-extrabold text-white text-base">Crear Receta de Platillo</h3>
+                  <h3 className="font-sans font-extrabold text-white text-base">
+                    {editingPlatilloId ? 'Editar Receta de Platillo' : 'Crear Receta de Platillo'}
+                  </h3>
                 </div>
-                <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white transition">
+                <button onClick={resetForm} className="text-slate-400 hover:text-white transition">
                   <X className="h-5 w-5" />
                 </button>
               </div>
@@ -426,7 +471,7 @@ export default function PlatillosPanel({
                 <div className="flex justify-end gap-3 pt-2">
                   <button
                     type="button"
-                    onClick={() => setShowAddModal(false)}
+                    onClick={resetForm}
                     className="bg-slate-800 hover:bg-slate-755 text-slate-300 font-bold py-2 px-4 rounded-xl text-sm transition"
                   >
                     Cancelar
@@ -435,7 +480,7 @@ export default function PlatillosPanel({
                     type="submit"
                     className="bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-bold py-2 px-4 rounded-xl text-sm transition shadow-lg shadow-orange-500/10"
                   >
-                    Crear Platillo / Receta
+                    {editingPlatilloId ? 'Guardar Cambios' : 'Crear Platillo / Receta'}
                   </button>
                 </div>
               </form>

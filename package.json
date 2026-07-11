@@ -15,12 +15,14 @@
     "electron:build": "vite build && electron-builder --win --config.npmRebuild=false"
   },
   "dependencies": {
+    "@capacitor-community/file-opener": "^8.0.1",
     "@capacitor/android": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/share": "^8.0.1",
     "electron-log": "^5.4.4",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "jspdf": "^4.2.1"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",

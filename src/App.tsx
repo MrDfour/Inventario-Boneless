@@ -11,9 +11,13 @@ import {
   saveCompras,
   loadCatalogo,
   saveCatalogo,
-  getFallbackCaducidad
+  getFallbackCaducidad,
+  loadCierres,
+  saveCierres,
+  loadConfigCorte,
+  saveConfigCorte
 } from './utils/storage';
-import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo, LoteInsumo } from './types';
+import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo, LoteInsumo, CierreVenta, ConfiguracionCorte } from './types';
 import DashboardHome from './components/DashboardHome';
 import InsumosPanel from './components/InsumosPanel';
 import PlatillosPanel from './components/PlatillosPanel';
@@ -133,11 +137,6 @@ function consumirInsumoFIFO(insumo: Insumo, cantidadARestar: number): { updatedI
     }
   }
 
-  if (restantePorRestar > 0 && lotes.length > 0) {
-    const ultimoLote = lotes[lotes.length - 1];
-    costoConsumido += restantePorRestar * ultimoLote.costoUnitario;
-  }
-
   const insumoConNuevosLotes = {
     ...insumo,
     lotes: updatedLotes
@@ -158,6 +157,8 @@ export default function App() {
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [compras, setCompras] = useState<CompraHistorial[]>([]);
   const [catalogo, setCatalogo] = useState<CatalogoInsumo[]>([]);
+  const [cierres, setCierres] = useState<CierreVenta[]>([]);
+  const [configCorte, setConfigCorte] = useState<ConfiguracionCorte>({ tipo: 'manual', horaAutomatica: '23:00' });
   
   // Estado para la pestaña seleccionada
   const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'platillos' | 'ventas' | 'reportes'>('dashboard');
@@ -213,6 +214,8 @@ export default function App() {
     setVentas(loadVentas());
     setCompras(loadCompras());
     setCatalogo(loadCatalogo());
+    setCierres(loadCierres());
+    setConfigCorte(loadConfigCorte());
   }, []);
 
   // Verificar actualizaciones en Android
@@ -480,13 +483,105 @@ export default function App() {
     savePlatillos(updated);
   };
 
-  // --- REGISTRAR VENTA (INTEGRIDAD DE INVENTARIOS EN TIEMPO REAL CON FIFO) ---
-  const handleRegistrarVenta = (platilloId: string, cantidadVendida: number) => {
+  // --- CIERRE DE VENTAS (CORTES DIARIOS MANUALES Y AUTOMÁTICOS) ---
+  const handleRealizarCierre = (tipo: 'manual' | 'automatico'): { success: boolean; errorMsg?: string } => {
+    const activeSales = ventas.filter(v => !v.cierreId);
+    if (activeSales.length === 0) {
+      return { success: false, errorMsg: 'No hay ventas activas para realizar el corte.' };
+    }
+
+    const cierreId = `cierre_${Date.now()}`;
+    const totalVentas = activeSales.reduce((sum, v) => sum + v.precioVentaTotal, 0);
+    const totalCosto = activeSales.reduce((sum, v) => sum + v.costoInsumosTotal, 0);
+    const totalMargen = activeSales.reduce((sum, v) => sum + v.margenTotal, 0);
+    const cantidadOperaciones = activeSales.length;
+
+    const nuevoCierre: CierreVenta = {
+      id: cierreId,
+      fechaCierre: new Date().toISOString(),
+      totalVentas,
+      totalCosto,
+      totalMargen,
+      cantidadOperaciones,
+      tipoCorte: tipo
+    };
+
+    const updatedVentas = ventas.map(v => {
+      if (!v.cierreId) {
+        return { ...v, cierreId };
+      }
+      return v;
+    });
+
+    const updatedCierres = [nuevoCierre, ...cierres];
+
+    setVentas(updatedVentas);
+    saveVentas(updatedVentas);
+    setCierres(updatedCierres);
+    saveCierres(updatedCierres);
+
+    return { success: true };
+  };
+
+  const handleDeleteCierres = (ids: string[]) => {
+    const updatedCierres = cierres.filter(c => !ids.includes(c.id));
+    const updatedVentas = ventas.filter(v => !v.cierreId || !ids.includes(v.cierreId));
+
+    setVentas(updatedVentas);
+    saveVentas(updatedVentas);
+    setCierres(updatedCierres);
+    saveCierres(updatedCierres);
+  };
+
+  const handleSaveConfigCorte = (config: ConfiguracionCorte) => {
+    setConfigCorte(config);
+    saveConfigCorte(config);
+  };
+
+  // Temporizador para corte de ventas diario automático
+  useEffect(() => {
+    if (configCorte.tipo !== 'automatico') return;
+
+    const interval = setInterval(() => {
+      const activeSales = ventas.filter(v => !v.cierreId);
+      if (activeSales.length === 0) return;
+
+      const [hStr, mStr] = configCorte.horaAutomatica.split(':');
+      const h = parseInt(hStr, 10);
+      const m = parseInt(mStr, 10);
+      const now = new Date();
+
+      const algunCortePasado = activeSales.some(sale => {
+        const saleDate = new Date(sale.fecha);
+        const cutoff = new Date(saleDate);
+        cutoff.setHours(h, m, 0, 0);
+        
+        if (saleDate >= cutoff) {
+          cutoff.setDate(cutoff.getDate() + 1);
+        }
+        
+        return now >= cutoff;
+      });
+
+      if (algunCortePasado) {
+        handleRealizarCierre('automatico');
+        showAlert(
+          'Corte Automático Realizado',
+          'El sistema ha realizado el cierre de ventas diario de forma automática según el horario configurado.'
+        );
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [configCorte, ventas, cierres]);
+
+  const handleRegistrarVenta = (platilloId: string, cantidadVendida: number, force = false): { success: boolean; errorMsg?: string; warningInsumos?: string[] } => {
     const platillo = platillos.find(p => p.id === platilloId);
     if (!platillo) return { success: false, errorMsg: 'Platillo no encontrado.' };
 
     // 1. Validar Stock Suficiente de todos los insumos de la receta
     const faltantes: string[] = [];
+    const warningInsumos: string[] = [];
     
     platillo.ingredientes.forEach(ingrediente => {
       const insumo = insumos.find(i => i.id === ingrediente.insumoId);
@@ -497,6 +592,7 @@ export default function App() {
       
       const cantidadRequerida = ingrediente.cantidad * cantidadVendida;
       if (insumo.cantidadActual < cantidadRequerida) {
+        warningInsumos.push(insumo.nombre);
         const diferencia = cantidadRequerida - insumo.cantidadActual;
         faltantes.push(
           `${insumo.nombre} (Stock actual: ${insumo.cantidadActual.toLocaleString('es-MX')} ${insumo.unidadMedida}, requerido: ${cantidadRequerida.toLocaleString('es-MX')} ${insumo.unidadMedida}. Faltan ${diferencia.toLocaleString('es-MX')} ${insumo.unidadMedida})`
@@ -504,9 +600,10 @@ export default function App() {
       }
     });
 
-    if (faltantes.length > 0) {
+    if (faltantes.length > 0 && !force) {
       return { 
         success: false, 
+        warningInsumos,
         errorMsg: `No hay suficiente stock para completar esta venta:\n` + faltantes.join('\n') 
       };
     }
@@ -803,8 +900,13 @@ export default function App() {
               ventas={ventas}
               platillos={platillos}
               insumos={insumos}
+              cierres={cierres}
+              configCorte={configCorte}
               onRegistrarVenta={handleRegistrarVenta}
               onAnularVenta={handleAnularVenta}
+              onRealizarCierre={handleRealizarCierre}
+              onDeleteCierres={handleDeleteCierres}
+              onSaveConfigCorte={handleSaveConfigCorte}
             />
           )}
 
