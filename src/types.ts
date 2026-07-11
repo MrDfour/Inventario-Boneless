@@ -49,6 +49,22 @@ export interface Venta {
   costoInsumosTotal: number;
   margenTotal: number; // precioVentaTotal - costoInsumosTotal
   fecha: string; // ISO string
+  cierreId?: string | null;
+}
+
+export interface CierreVenta {
+  id: string;
+  fechaCierre: string; // ISO string
+  totalVentas: number;
+  totalCosto: number;
+  totalMargen: number;
+  cantidadOperaciones: number;
+  tipoCorte: 'manual' | 'automatico';
+}
+
+export interface ConfiguracionCorte {
+  tipo: 'manual' | 'automatico';
+  horaAutomatica: string; // "HH:MM"
 }
 
 export interface CompraHistorial {

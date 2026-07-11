@@ -1,4 +1,4 @@
-import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo } from '../types';
+import { Insumo, Platillo, Venta, CompraHistorial, CatalogoInsumo, CierreVenta, ConfiguracionCorte } from '../types';
 
 const STORAGE_KEYS = {
   INSUMOS: 'boneless_inventario_insumos',
@@ -6,6 +6,8 @@ const STORAGE_KEYS = {
   VENTAS: 'boneless_inventario_ventas',
   COMPRAS: 'boneless_inventario_compras',
   CATALOGO: 'boneless_inventario_catalogo',
+  CIERRES: 'boneless_inventario_cierres',
+  CONFIG_CORTE: 'boneless_inventario_config_corte',
 };
 
 const CATALOGO_SEMILLA: CatalogoInsumo[] = [
@@ -237,7 +239,12 @@ export function loadVentas(): Venta[] {
     saveVentas(VENTAS_SEMILLA);
     return VENTAS_SEMILLA;
   }
-  return JSON.parse(data);
+  const parsed: Venta[] = JSON.parse(data);
+  // Retrocompatibilidad: Asegurar que todas las ventas tengan cierreId definido
+  return parsed.map(v => ({
+    ...v,
+    cierreId: v.cierreId !== undefined ? v.cierreId : null
+  }));
 }
 
 export function saveVentas(ventas: Venta[]): void {
@@ -263,7 +270,29 @@ export function clearAllStorage(): void {
   saveVentas([]);
   saveCompras([]);
   saveCatalogo([]);
+  saveCierres([]);
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_CORTE);
   window.location.reload();
+}
+
+export function loadCierres(): CierreVenta[] {
+  const data = localStorage.getItem(STORAGE_KEYS.CIERRES);
+  if (!data) return [];
+  return JSON.parse(data);
+}
+
+export function saveCierres(cierres: CierreVenta[]): void {
+  localStorage.setItem(STORAGE_KEYS.CIERRES, JSON.stringify(cierres));
+}
+
+export function loadConfigCorte(): ConfiguracionCorte {
+  const data = localStorage.getItem(STORAGE_KEYS.CONFIG_CORTE);
+  if (!data) return { tipo: 'manual', horaAutomatica: '23:00' };
+  return JSON.parse(data);
+}
+
+export function saveConfigCorte(config: ConfiguracionCorte): void {
+  localStorage.setItem(STORAGE_KEYS.CONFIG_CORTE, JSON.stringify(config));
 }
 
 export function exportDataAsJSON(): string {
@@ -273,6 +302,8 @@ export function exportDataAsJSON(): string {
     ventas: loadVentas(),
     compras: loadCompras(),
     catalogo: loadCatalogo(),
+    cierres: loadCierres(),
+    configCorte: loadConfigCorte(),
     exportDate: new Date().toISOString()
   };
   return JSON.stringify(data, null, 2);
@@ -284,11 +315,19 @@ export function importDataFromJSON(jsonString: string): boolean {
     if (data.insumos && data.platillos && data.ventas && data.compras) {
       saveInsumos(data.insumos);
       savePlatillos(data.platillos);
-      saveVentas(data.ventas);
+      // Retrocompatibilidad: Asegurar que todas las ventas importadas tengan cierreId definido
+      const cleanVentas = data.ventas.map((v: any) => ({
+        ...v,
+        cierreId: v.cierreId !== undefined ? v.cierreId : null
+      }));
+      saveVentas(cleanVentas);
       saveCompras(data.compras);
       if (data.catalogo) {
         saveCatalogo(data.catalogo);
       }
+      // Retrocompatibilidad: Si el respaldo no incluye cierres o configuración (versión antigua), inicializar con valores por defecto
+      saveCierres(data.cierres || []);
+      saveConfigCorte(data.configCorte || { tipo: 'manual', horaAutomatica: '23:00' });
       return true;
     }
     return false;
