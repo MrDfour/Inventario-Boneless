@@ -81,7 +81,7 @@ export default function DashboardHome({ insumos, ventas, platillos, onNavigate }
             ¡Hola! <Sparkles className="h-5.5 w-5.5 text-orange-400 animate-pulse" />
           </h2>
           <p className="text-slate-300 mt-1 text-sm max-w-2xl leading-relaxed">
-            Este es el estado actual de tu negocio de boneless hoy. Todo el inventario se gestiona localmente en este navegador.
+            Este es el estado actual de tu negocio de boneless hoy. Todo el inventario se gestiona localmente en esta aplicación.
           </p>
         </div>
         <div className="flex items-center gap-2 bg-slate-900/90 border border-slate-800 py-2 px-4 rounded-full text-xs font-mono text-slate-300 shadow-md self-start md:self-center">
