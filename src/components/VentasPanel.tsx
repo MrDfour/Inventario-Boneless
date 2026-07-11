@@ -35,7 +35,7 @@ interface VentasPanelProps {
   cierres: CierreVenta[];
   configCorte: ConfiguracionCorte;
   onRegistrarVenta: (platilloId: string, cantidad: number, force?: boolean) => { success: boolean; errorMsg?: string; warningInsumos?: string[] };
-  onAnularVenta: (ventaId: string) => void;
+  onAnularVenta: (ventaId: string, ingredientesPerdidos?: string[]) => void;
   onRealizarCierre: (tipo: 'manual' | 'automatico') => { success: boolean; errorMsg?: string };
   onDeleteCierres: (ids: string[]) => void;
   onSaveConfigCorte: (config: ConfiguracionCorte) => void;
@@ -75,6 +75,48 @@ export default function VentasPanel({
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [selectedCierres, setSelectedCierres] = useState<string[]>([]);
   const [expandedCierreId, setExpandedCierreId] = useState<string | null>(null);
+
+  // Estados para el modal de pérdida de cocina
+  const [lossModalConfig, setLossModalConfig] = useState<{
+    isOpen: boolean;
+    venta: Venta | null;
+    tipoPerdida: 'total' | 'parcial' | null;
+    ingredientesSeleccionados: string[];
+  }>({
+    isOpen: false,
+    venta: null,
+    tipoPerdida: null,
+    ingredientesSeleccionados: []
+  });
+
+  const handleVentaAPerdidaClick = (venta: Venta) => {
+    setLossModalConfig({
+      isOpen: true,
+      venta,
+      tipoPerdida: null,
+      ingredientesSeleccionados: []
+    });
+  };
+
+  const handleConfirmLossTotal = () => {
+    if (!lossModalConfig.venta) return;
+    const v = lossModalConfig.venta;
+    const platillo = platillos.find(p => p.id === v.platilloId);
+    const allIngs = platillo ? platillo.ingredientes.map(i => i.insumoId) : [];
+    
+    onAnularVenta(v.id, allIngs);
+    setLossModalConfig({ isOpen: false, venta: null, tipoPerdida: null, ingredientesSeleccionados: [] });
+    showAlert('Pérdida Registrada', 'La venta fue cancelada y ningún ingrediente regresó al almacén (Pérdida Total).');
+  };
+
+  const handleConfirmLossParcial = () => {
+    if (!lossModalConfig.venta) return;
+    const v = lossModalConfig.venta;
+    
+    onAnularVenta(v.id, lossModalConfig.ingredientesSeleccionados);
+    setLossModalConfig({ isOpen: false, venta: null, tipoPerdida: null, ingredientesSeleccionados: [] });
+    showAlert('Pérdida Parcial Registrada', 'La venta fue cancelada. Los ingredientes marcados se perdieron permanentemente, y el resto regresó al almacén con éxito.');
+  };
 
   // Filtramos las ventas activas (sin cerrar)
   const activeVentas = ventas.filter(v => !v.cierreId);
@@ -588,20 +630,30 @@ export default function VentasPanel({
                         <p className="text-[11px] text-emerald-400 font-extrabold">Margen: +${venta.margenTotal.toFixed(2)}</p>
                       </div>
 
-                      <button
-                        onClick={() => {
-                          showConfirm(
-                            'Anular Venta',
-                            '¿Estás seguro de que quieres anular esta venta? Esto RESTAURARÁ todos los insumos de la receta al almacén.',
-                            () => onAnularVenta(venta.id),
-                            true
-                          );
-                        }}
-                        className="text-slate-500 hover:text-rose-400 p-1 hover:bg-rose-500/10 rounded transition self-end sm:self-auto flex items-center gap-1 text-[10px] font-mono font-bold"
-                        title="Anular venta y devolver stock"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" /> Anular Venta
-                      </button>
+                      <div className="flex flex-wrap sm:flex-col items-end gap-1.5">
+                        <button
+                          onClick={() => {
+                            showConfirm(
+                              'Anular Venta',
+                              '¿Estás seguro de que quieres anular esta venta? Esto RESTAURARÁ todos los insumos de la receta al almacén.',
+                              () => onAnularVenta(venta.id),
+                              true
+                            );
+                          }}
+                          className="text-slate-500 hover:text-rose-400 p-1 hover:bg-rose-500/10 rounded transition flex items-center gap-1 text-[10px] font-mono font-bold"
+                          title="Anular venta y devolver stock"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" /> Anular Venta
+                        </button>
+
+                        <button
+                          onClick={() => handleVentaAPerdidaClick(venta)}
+                          className="text-slate-500 hover:text-orange-400 p-1 hover:bg-orange-500/10 rounded transition flex items-center gap-1 text-[10px] font-mono font-bold"
+                          title="Anular venta marcando ingredientes perdidos en cocina"
+                        >
+                          <AlertCircle className="h-3.5 w-3.5" /> Venta a Pérdida
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -925,6 +977,126 @@ export default function VentasPanel({
                   </div>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: Venta a Pérdida */}
+      <AnimatePresence>
+        {lossModalConfig.isOpen && lossModalConfig.venta && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl max-w-md w-full overflow-hidden text-slate-100 p-6 space-y-4"
+            >
+              <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
+                <AlertCircle className="h-5 w-5 text-orange-400" />
+                <h3 className="font-sans font-extrabold text-white text-base">Registrar Venta a Pérdida</h3>
+              </div>
+
+              {lossModalConfig.tipoPerdida === null ? (
+                <div className="space-y-4 py-2">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Esta opción anula la venta de <strong>{lossModalConfig.venta.platilloNombre}</strong>. Selecciona el tipo de pérdida ocurrido en la cocina:
+                  </p>
+                  
+                  <div className="grid grid-cols-1 gap-3">
+                    <button
+                      onClick={handleConfirmLossTotal}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-800/80 hover:border-slate-700 p-4 rounded-xl text-left transition space-y-1 w-full"
+                    >
+                      <h4 className="text-xs font-bold text-white uppercase font-sans">Pérdida Total</h4>
+                      <p className="text-[11px] text-slate-400">Ningún ingrediente regresa al almacén. Todo el platillo se arruinó por completo.</p>
+                    </button>
+
+                    <button
+                      onClick={() => setLossModalConfig(prev => ({ ...prev, tipoPerdida: 'parcial' }))}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-800/80 hover:border-slate-700 p-4 rounded-xl text-left transition space-y-1 w-full"
+                    >
+                      <h4 className="text-xs font-bold text-orange-400 uppercase font-sans">Pérdida Parcial</h4>
+                      <p className="text-[11px] text-slate-400">Selecciona los ingredientes que se echaron a perder. El resto sí regresará al almacén.</p>
+                    </button>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button
+                      onClick={() => setLossModalConfig(prev => ({ ...prev, isOpen: false }))}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 text-slate-300 font-bold py-2 px-4 rounded-xl text-xs transition"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Marca los ingredientes que <strong>se echaron a perder</strong> (no volverán al stock). Los desmarcados se reintegrarán al almacén:
+                  </p>
+
+                  <div className="bg-slate-950/60 border border-slate-850 rounded-xl p-3 max-h-[220px] overflow-y-auto space-y-2">
+                    {platillos.find(p => p.id === lossModalConfig.venta?.platilloId)?.ingredientes.map(ing => {
+                      const isChecked = lossModalConfig.ingredientesSeleccionados.includes(ing.insumoId);
+                      return (
+                        <label
+                          key={ing.insumoId}
+                          className="flex items-center justify-between text-xs text-slate-200 cursor-pointer hover:bg-slate-900/40 p-1.5 rounded transition"
+                        >
+                          <span className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setLossModalConfig(prev => ({
+                                    ...prev,
+                                    ingredientesSeleccionados: prev.ingredientesSeleccionados.filter(id => id !== ing.insumoId)
+                                  }));
+                                } else {
+                                  setLossModalConfig(prev => ({
+                                    ...prev,
+                                    ingredientesSeleccionados: [...prev.ingredientesSeleccionados, ing.insumoId]
+                                  }));
+                                }
+                              }}
+                              className="accent-orange-500"
+                            />
+                            <span>{insumos.find(i => i.id === ing.insumoId)?.nombre || 'Insumo desconocido'}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {ing.cantidad * (lossModalConfig.venta?.cantidad || 1)} g/ml
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex justify-between pt-2">
+                    <button
+                      onClick={() => setLossModalConfig(prev => ({ ...prev, tipoPerdida: null, ingredientesSeleccionados: [] }))}
+                      className="bg-slate-950 hover:bg-slate-850 border border-slate-850 text-slate-400 font-bold py-2 px-4 rounded-xl text-xs transition"
+                    >
+                      Atrás
+                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setLossModalConfig(prev => ({ ...prev, isOpen: false }))}
+                        className="bg-slate-950 hover:bg-slate-850 border border-slate-855 text-slate-300 font-bold py-2 px-4 rounded-xl text-xs transition"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleConfirmLossParcial}
+                        className="bg-orange-600 hover:bg-orange-550 text-white font-bold py-2 px-4 rounded-xl text-xs shadow-md transition"
+                      >
+                        Confirmar Pérdida
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

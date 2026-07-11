@@ -367,7 +367,7 @@ MÁRGENES DE OPERACIÓN COMERCIAL:
           Mantenimiento de Datos (Respaldo Local)
         </h3>
         <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-          Dado que este programa funciona localmente en tu navegador para que no necesite servidores ni mantenimiento complejo, tus datos se guardan en el historial del navegador. <span className="font-bold text-slate-300">Te recomendamos descargar un respaldo periódicamente</span> o cuando quieras cambiar de computadora.
+          Dado que este programa funciona localmente en tu aplicación para que no necesite servidores ni mantenimiento complejo, tus datos se guardan en el historial de la aplicación. <span className="font-bold text-slate-300">Te recomendamos descargar un respaldo periódicamente</span> o cuando quieras cambiar de computadora.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">

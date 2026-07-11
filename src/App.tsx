@@ -650,8 +650,8 @@ export default function App() {
     return { success: true };
   };
 
-  // --- ANULAR VENTA (RESTAURACIÓN DE INVENTARIO FIFO) ---
-  const handleAnularVenta = (ventaId: string) => {
+  // --- ANULAR VENTA (RESTAURACIÓN DE INVENTARIO FIFO O REGISTRO A PÉRDIDA) ---
+  const handleAnularVenta = (ventaId: string, ingredientesPerdidos?: string[]) => {
     const venta = ventas.find(v => v.id === ventaId);
     if (!venta) return;
 
@@ -662,6 +662,10 @@ export default function App() {
       const updatedInsumos = insumos.map(ins => {
         const ingredienteReceta = platillo.ingredientes.find(ing => ing.insumoId === ins.id);
         if (ingredienteReceta) {
+          // Si el ingrediente se echó a perder, no se restaura al inventario
+          if (ingredientesPerdidos && ingredientesPerdidos.includes(ins.id)) {
+            return ins;
+          }
           const cantidadARestaurar = ingredienteReceta.cantidad * venta.cantidad;
           const lotesActuales = ins.lotes || [];
           let nuevosLotes = [...lotesActuales];
@@ -925,7 +929,7 @@ export default function App() {
       <footer className="bg-slate-900 text-slate-500 py-8 text-center text-xs mt-auto border-t border-slate-800/80">
         <div className="max-w-7xl mx-auto px-4">
           <p>© {new Date().getFullYear()} Sistema de Inventario Boneless. Todo bajo control.</p>
-          <p className="mt-1.5 text-[10px] text-slate-600 max-w-lg mx-auto leading-relaxed">Almacenamiento 100% local y seguro en tu navegador. Sin bases de datos externas, manteniendo la privacidad absoluta de tus costos e ingresos.</p>
+          <p className="mt-1.5 text-[10px] text-slate-600 max-w-lg mx-auto leading-relaxed">Almacenamiento 100% local y seguro en tu aplicación. Sin bases de datos externas, manteniendo la privacidad absoluta de tus costos e ingresos.</p>
         </div>
       </footer>
 
